@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vox-code"
+version = "9.0.0"
+description = "Web-aware Tool CLI - 支持 ReAct、Plan-and-Execute、Memory、RAG、Multi-Agent、HITL"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27,<1",
+    "python-dotenv>=1.0,<2",
+    "pyyaml>=6.0,<7",
+    "beautifulsoup4>=4.12,<5",
+    "lxml>=5.1,<6",
+    "readline-osx>=1.0; sys_platform == 'darwin'",
+]
+
+[project.scripts]
+vox-code = "paicli.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["paicli"]
