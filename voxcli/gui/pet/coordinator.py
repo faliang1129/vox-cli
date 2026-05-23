@@ -22,7 +22,7 @@ from .data import (
     gui_model_profile_label,
 )
 from .widgets import PetWidget
-from .windows import ChatWindow, CommandWindow, FloatingActionBar, GuiModelSettingsWindow, PetManagerWindow, StatusCardWidget
+from .windows import ChatWindow, CommandWindow, FloatingActionBar, GuiModelSettingsWindow, PetManagerWindow, PersonalityWindow, StatusCardWidget
 from .workers import SessionWorker
 
 
@@ -41,6 +41,7 @@ class PetCoordinator(QWidget):
         self._pet_store = PetPackageStore()
         self._settings_window: GuiModelSettingsWindow | None = None
         self._pet_manager: PetManagerWindow | None = None
+        self._personality_window: PersonalityWindow | None = None
         self.current_skin = self._state_store.load_skin()
         self.current_pet_id = self._state_store.load_selected_pet()
         self.current_language = pai_config.active_language
@@ -279,6 +280,10 @@ class PetCoordinator(QWidget):
         model_settings.triggered.connect(self.open_model_settings)
         menu.addAction(model_settings)
 
+        personality = QAction("性格设置", menu)
+        personality.triggered.connect(self.open_personality_settings)
+        menu.addAction(personality)
+
         menu.addSeparator()
         self._populate_configuration_menu(menu)
 
@@ -411,6 +416,10 @@ class PetCoordinator(QWidget):
         model_settings = QAction("模型设置", menu)
         model_settings.triggered.connect(self.open_model_settings)
         menu.addAction(model_settings)
+
+        personality = QAction("性格设置", menu)
+        personality.triggered.connect(self.open_personality_settings)
+        menu.addAction(personality)
 
         menu.addSeparator()
         pets_menu = menu.addMenu("宠物")
@@ -648,6 +657,10 @@ class PetCoordinator(QWidget):
             return
         pai_config.set_active_persona(persona_id)
         self._refresh_tray_menu()
+        if self._personality_window is not None and self._personality_window.isVisible():
+            self._personality_window.load_personas(
+                pai_config.personas(), pai_config.active_persona
+            )
         label = str(persona.get("label", persona_id)).strip() or persona_id
         message = self._format_text("persona_switched", label, f"人格已切换为 {label}")
         self.pet.speak(message)
@@ -766,6 +779,16 @@ class PetCoordinator(QWidget):
         self._pet_manager.show()
         self._pet_manager.raise_()
         self._pet_manager.activateWindow()
+
+    def open_personality_settings(self):
+        if self._personality_window is None:
+            self._personality_window = PersonalityWindow()
+        self._personality_window.load_personas(
+            pai_config.personas(), pai_config.active_persona
+        )
+        self._personality_window.show()
+        self._personality_window.raise_()
+        self._personality_window.activateWindow()
 
     def _manager_import_pet(self):
         """从 Pet Manager 导入宠物"""

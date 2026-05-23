@@ -129,7 +129,7 @@ def draw_pet_body(painter: QPainter, rect: QRect, package: PetPackage,
 
     参数与 PetWidget 内部状态对应，由调用方决定传入值。
     """
-    lift = 2 if float_phase in {1, 2} else 0
+    lift = 2 if (float_phase % 4) in {1, 2} else 0
     if package.id == "pixel-cat":
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
 
@@ -582,7 +582,7 @@ class PetWidget(QWidget):
 
     def _tick(self):
         self._blink = not self._blink
-        self._float_phase = (self._float_phase + 1) % 4
+        self._float_phase += 1
         self.update()
 
     def mousePressEvent(self, event: QMouseEvent):

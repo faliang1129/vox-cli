@@ -24,7 +24,13 @@ class OpenAiCompatibleClient(LlmClient):
         self._model = model
         self._base_url = base_url
         self._provider_name = provider_name
-        self._http = httpx.Client(timeout=httpx.Timeout(timeout, connect=60.0))
+        # Use certifi if available for better SSL compat (macOS system Python)
+        try:
+            import certifi
+            verify = certifi.where()
+        except ImportError:
+            verify = True
+        self._http = httpx.Client(timeout=httpx.Timeout(timeout, connect=60.0), verify=verify)
 
     @property
     def model_name(self) -> str:

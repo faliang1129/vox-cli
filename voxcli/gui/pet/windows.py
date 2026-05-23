@@ -1,8 +1,10 @@
-"""Floating windows used by the desktop pet UI."""
+"""
+Floating windows used by the desktop pet UI."""
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
@@ -1893,3 +1895,404 @@ class _PetManagerPreview(QWidget):
         draw_pet_body(painter, self.rect(), self._package, palette,
                       status_action=0, thinking=False, blink=False, float_phase=0)
         painter.restore()
+
+
+class _PersonaCard(QWidget):
+    """Selectable persona card — label, description, selection state."""
+
+    clicked = Signal(str)
+
+    def __init__(self, persona_id: str, label: str, description: str,
+                 selected: bool = False):
+        super().__init__()
+        self._id = persona_id
+        self._label = label
+        self._description = description
+        self._selected = selected
+        self.setFixedSize(440, 64)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def set_selected(self, selected: bool):
+        self._selected = selected
+        self.update()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(self._id)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def paintEvent(self, _event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        rect = self.rect().adjusted(1, 1, -1, -1)
+
+        if self._selected:
+            border = QColor(104, 177, 255)
+            bg = QColor(22, 28, 38)
+            dot_color = QColor(10, 132, 255)
+        else:
+            border = QColor(58, 62, 70)
+            bg = QColor(16, 18, 22, 238)
+            dot_color = QColor(86, 90, 98)
+
+        painter.setPen(QPen(border, 2 if self._selected else 1))
+        painter.setBrush(bg)
+        painter.drawRoundedRect(rect, 12, 12)
+
+        # Selection dot
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(dot_color)
+        painter.drawEllipse(QPoint(22, 32), 5, 5)
+
+        # Label
+        label_font = QFont("Menlo")
+        if not label_font.exactMatch():
+            label_font = QFont()
+        label_font.setPointSize(12)
+        label_font.setBold(True)
+        painter.setFont(label_font)
+        painter.setPen(QColor(236, 236, 236))
+        painter.drawText(QRect(38, 6, 390, 26),
+                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                         self._label)
+
+        # Description
+        if self._description:
+            desc_font = QFont()
+            desc_font.setPointSize(10)
+            painter.setFont(desc_font)
+            painter.setPen(QColor(165, 165, 170))
+            painter.drawText(QRect(38, 30, 390, 26),
+                             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                             self._description)
+
+
+class PersonalityWindow(FramelessToolWindow):
+    """Personality/persona settings window.
+
+    Lists all personas from catalog as selectable cards,
+    with a read-only prompt preview at the bottom.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Vox Pet 性格设置")
+        self.setMinimumSize(QSize(480, 420))
+        self.resize(480, 460)
+        self._cards: list[_PersonaCard] = []
+        self._current_id = ""
+
+        root = QWidget()
+        self.setCentralWidget(root)
+        outer = QVBoxLayout(root)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        panel = QFrame()
+        panel.setObjectName("personalityPanel")
+        make_shadow(panel, blur=34, y=10, alpha=78)
+        outer.addWidget(panel)
+
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # Header
+        header = QHBoxLayout()
+        header.setContentsMargins(18, 18, 18, 16)
+        header.setSpacing(12)
+
+        back_button = QPushButton("←")
+        back_button.setObjectName("settingsBackButton")
+        back_button.setFixedSize(40, 40)
+        back_button.clicked.connect(self.hide)
+        header.addWidget(back_button)
+
+        title_label = QLabel("性格设置")
+        title_font = QFont()
+        title_font.setPointSize(18)
+        title_font.setBold(True)
+        title_label.setFont(title_font)
+        header.addWidget(title_label)
+        header.addStretch(1)
+
+        self.badge = QLabel("")
+        self.badge.setObjectName("settingsBadge")
+        header.addWidget(self.badge, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addLayout(header)
+
+        # Scroll area for persona cards
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+            "QScrollBar:vertical { background: transparent; width: 8px; margin: 2px 0 2px 0; }"
+            "QScrollBar::handle:vertical {"
+            "background: rgba(110, 110, 116, 0.42);"
+            "border-radius: 4px;"
+            "min-height: 24px;"
+            "}"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
+            "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }"
+        )
+
+        scroll_content = QWidget()
+        self._scroll_layout = QVBoxLayout(scroll_content)
+        self._scroll_layout.setContentsMargins(18, 4, 18, 4)
+        self._scroll_layout.setSpacing(8)
+        self._scroll_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        scroll.setWidget(scroll_content)
+        layout.addWidget(scroll, 1)
+
+        # Prompt editor
+        preview_card = QFrame()
+        preview_card.setObjectName("promptCard")
+        preview_layout = QVBoxLayout(preview_card)
+        preview_layout.setContentsMargins(18, 14, 18, 14)
+        preview_layout.setSpacing(8)
+
+        prompt_title = QLabel("当前 Prompt")
+        prompt_title.setStyleSheet(
+            "color: #f1f1f1; font-size: 13px; font-weight: 700; background: transparent;"
+        )
+        preview_layout.addWidget(prompt_title)
+
+        self._prompt_edit = QPlainTextEdit()
+        self._prompt_edit.setObjectName("personalityPromptEditor")
+        self._prompt_edit.setMinimumHeight(100)
+        self._prompt_edit.setMaximumHeight(160)
+        self._prompt_edit.setPlaceholderText("选择一个性格预设，然后可以在这里自定义 Prompt")
+        preview_layout.addWidget(self._prompt_edit)
+
+        # Prompt actions
+        prompt_actions = QHBoxLayout()
+        prompt_actions.setSpacing(8)
+        self._save_prompt_btn = QPushButton("保存修改")
+        self._save_prompt_btn.setObjectName("secondaryAction")
+        self._save_prompt_btn.clicked.connect(self._save_custom_prompt)
+        prompt_actions.addWidget(self._save_prompt_btn)
+
+        self._reset_prompt_btn = QPushButton("恢复默认")
+        self._reset_prompt_btn.setObjectName("secondaryAction")
+        self._reset_prompt_btn.clicked.connect(self._reset_custom_prompt)
+        prompt_actions.addWidget(self._reset_prompt_btn)
+
+        self._prompt_status = QLabel("")
+        self._prompt_status.setStyleSheet(
+            "color: rgba(164, 164, 164, 0.95); font-size: 11px; background: transparent;"
+        )
+        prompt_actions.addWidget(self._prompt_status, 1)
+
+        preview_layout.addLayout(prompt_actions)
+
+        layout.addWidget(preview_card)
+
+        # Close button
+        footer = QHBoxLayout()
+        footer.setContentsMargins(18, 10, 18, 18)
+        footer.setSpacing(10)
+        footer.addStretch(1)
+        close_btn = QPushButton("关闭")
+        close_btn.setObjectName("secondaryAction")
+        close_btn.clicked.connect(self.hide)
+        footer.addWidget(close_btn)
+        layout.addLayout(footer)
+
+        self.apply_skin("dark")
+
+    def load_personas(self, personas: list[dict], current_id: str):
+        """Refresh the persona list and selection."""
+        self._current_id = current_id
+        self._rebuild_cards(personas)
+        self._update_prompt(preview=not bool(self._cards))
+        self.badge.setText(
+            next((p["label"] for p in personas if p["id"] == current_id), "")
+        )
+
+    def _rebuild_cards(self, personas: list[dict]):
+        for card in self._cards:
+            self._scroll_layout.removeWidget(card)
+            card.deleteLater()
+        self._cards.clear()
+
+        for persona in personas:
+            pid = str(persona.get("id", "")).strip()
+            label = str(persona.get("label", pid)).strip() or pid
+            description = str(persona.get("description", "")).strip()
+            selected = pid == self._current_id
+            card = _PersonaCard(pid, label, description, selected=selected)
+            if pid != "__placeholder__":
+                card.clicked.connect(self._on_card_clicked)
+            self._scroll_layout.addWidget(card)
+            self._cards.append(card)
+
+    def _on_card_clicked(self, persona_id: str):
+        """Switch persona and update UI."""
+        pai_config.set_active_persona(persona_id)
+        self._current_id = persona_id
+        for card in self._cards:
+            card.set_selected(card._id == persona_id)
+        self._update_prompt()
+        persona = pai_config.get_persona(persona_id)
+        self.badge.setText(str(persona.get("label", persona_id)) if persona else persona_id)
+
+    def _update_prompt(self, preview: bool = False):
+        if preview:
+            self._prompt_edit.setPlainText("")
+            return
+        persona = pai_config.get_persona(self._current_id)
+        if persona is None:
+            self._prompt_edit.setPlainText("")
+            return
+        prompt = str(persona.get("prompt", "")).strip()
+        self._prompt_edit.setPlainText(prompt)
+        self._prompt_status.setText("")
+
+    @staticmethod
+    def _catalog_path() -> Path:
+        override = (
+            __import__("os")
+            .environ.get("VOX_CODE_HOME", "")
+            .strip()
+            or __import__("os").environ.get("VOX_HOME", "").strip()
+        )
+        if override:
+            return Path(override).expanduser() / "catalog.json"
+        return Path.home() / ".vox-code" / "catalog.json"
+
+    def _save_custom_prompt(self):
+        """Save edited prompt to catalog.json as per-id override."""
+        text = self._prompt_edit.toPlainText().strip()
+        if not text:
+            self._prompt_status.setText("Prompt 不能为空")
+            self._prompt_status.setStyleSheet(
+                "color: #ffe4e4; font-size: 11px; background: transparent;"
+            )
+            return
+
+        path = self._catalog_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Load existing catalog overrides
+        existing: dict = {}
+        if path.exists():
+            try:
+                existing = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                existing = {}
+
+        personas_override: list[dict] = existing.get("personas", [])
+        found = False
+        for p in personas_override:
+            if p.get("id") == self._current_id:
+                p["prompt"] = text
+                found = True
+                break
+        if not found:
+            personas_override.append({"id": self._current_id, "prompt": text})
+
+        existing["personas"] = personas_override
+        try:
+            path.write_text(
+                json.dumps(existing, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            self._prompt_status.setText(f"保存失败: {exc}")
+            self._prompt_status.setStyleSheet(
+                "color: #ffe4e4; font-size: 11px; background: transparent;"
+            )
+            return
+
+        # Reload catalog so pai_config picks up the change
+        pai_config.reload_catalog()
+        self._prompt_status.setText("已保存 ✓")
+        self._prompt_status.setStyleSheet(
+            "color: #7fdb9a; font-size: 11px; background: transparent;"
+        )
+
+    def _reset_custom_prompt(self):
+        """Remove per-id override from catalog.json, restore default."""
+        path = self._catalog_path()
+        if path.exists():
+            try:
+                existing = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                existing = {}
+
+            personas_override = [
+                p for p in existing.get("personas", []) if p.get("id") != self._current_id
+            ]
+            existing["personas"] = personas_override
+            try:
+                path.write_text(
+                    json.dumps(existing, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+            except OSError:
+                pass
+
+        pai_config.reload_catalog()
+        self._update_prompt()
+        self._prompt_status.setText("已恢复默认 ✓")
+        self._prompt_status.setStyleSheet(
+            "color: rgba(164, 164, 164, 0.95); font-size: 11px; background: transparent;"
+        )
+
+    def apply_skin(self, skin: str):
+        self.setStyleSheet(
+            "QMainWindow { background: transparent; }"
+            "#personalityPanel {"
+            "background: rgba(10, 12, 16, 244);"
+            "border: 1px solid rgba(72, 76, 84, 220);"
+            "border-radius: 26px;"
+            "}"
+            "#settingsBackButton {"
+            "background: rgba(29, 32, 36, 0.96);"
+            "border: 1px solid rgba(86, 90, 98, 0.88);"
+            "border-radius: 20px;"
+            "color: #f1f1f1;"
+            "font-size: 18px;"
+            "font-weight: 700;"
+            "}"
+            "#settingsBackButton:hover { background: rgba(74, 79, 87, 0.98); }"
+            "#settingsBadge {"
+            "padding: 6px 12px;"
+            "border-radius: 14px;"
+            "background: rgba(29, 32, 36, 0.96);"
+            "border: 1px solid rgba(86, 90, 98, 0.88);"
+            "color: rgba(214, 214, 214, 0.92);"
+            "font-size: 12px;"
+            "font-weight: 700;"
+            "}"
+            "#promptCard {"
+            "background: rgba(22, 24, 28, 0.96);"
+            "border: 1px solid rgba(58, 62, 70, 0.92);"
+            "border-radius: 16px;"
+            "margin: 0 18px;"
+            "}"
+            "QPlainTextEdit#personalityPromptEditor {"
+            "background: rgba(44, 42, 43, 0.96);"
+            "border: 1px solid rgba(96, 96, 102, 0.86);"
+            "border-radius: 12px;"
+            "padding: 10px 12px;"
+            "color: #d8d8dc;"
+            "font-size: 12px;"
+            "font-family: Menlo, Monaco, monospace;"
+            "}"
+            "QLabel { color: #f1f1f1; font-size: 14px; }"
+            "QPushButton#secondaryAction {"
+            "background: rgba(29, 32, 36, 0.96);"
+            "border: 1px solid rgba(86, 90, 98, 0.88);"
+            "border-radius: 18px;"
+            "padding: 10px 16px;"
+            "color: #f1f1f1;"
+            "font-size: 13px;"
+            "font-weight: 700;"
+            "min-height: 42px;"
+            "}"
+            "QPushButton#secondaryAction:hover { background: rgba(74, 79, 87, 0.98); }"
+        )
