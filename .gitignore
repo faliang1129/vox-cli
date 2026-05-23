@@ -1,0 +1,13 @@
+.DS_Store
+.env
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.py[cod]
+
+voxcli/**/__pycache__/

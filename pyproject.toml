@@ -4,9 +4,24 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vox-code"
-version = "9.0.0"
+version = "2.0.0"
 description = "Web-aware Tool CLI - 支持 ReAct、Plan-and-Execute、Memory、RAG、Multi-Agent、HITL"
+readme = "README.md"
 requires-python = ">=3.11"
+keywords = ["ai", "cli", "agent", "rag", "developer-tools", "llm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
     "httpx>=0.27,<1",
     "python-dotenv>=1.0,<2",
@@ -21,5 +36,18 @@ dependencies = [
 vox-code = "voxcli.__main__:main"
 vox-pet = "voxcli.gui.main:main"
 
+[project.urls]
+Homepage = "https://github.com/faliang1129/vox-cli"
+Repository = "https://github.com/faliang1129/vox-cli"
+Issues = "https://github.com/faliang1129/vox-cli/issues"
+
 [tool.hatch.build.targets.wheel]
 packages = ["voxcli"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/README.md",
+    "/pyproject.toml",
+    "/.env.example",
+    "/voxcli",
+]
