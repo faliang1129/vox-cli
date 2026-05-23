@@ -99,86 +99,6 @@ def draw_desktop_background(img):
     return dock
 
 
-def draw_ghostty_mockup():
-    img = draw_gradient((1600, 1000), (16, 37, 58), (5, 15, 28))
-    img = draw_desktop_background(img)
-    draw = ImageDraw.Draw(img)
-
-    draw.ellipse((1120, 80, 1510, 470), fill=(72, 166, 255, 32))
-    draw.ellipse((70, 520, 480, 930), fill=(41, 226, 168, 24))
-
-    add_text(draw, (88, 72), "方案 A  ·  Ghostty 悬浮终端版", FONT_H1, (242, 248, 255))
-    add_text(draw, (88, 132), "本质是一个被做成桌面挂件的透明终端，不是异形桌宠。", FONT_BODY, (194, 209, 226))
-
-    term = rounded_box(img, (920, 120, 1510, 840), 28, (14, 18, 24, 188), outline=(120, 160, 190, 110), width=2)
-    img = term
-    draw = ImageDraw.Draw(img)
-    draw.rounded_rectangle((942, 146, 1488, 188), radius=16, fill=(255, 255, 255, 26))
-    draw.ellipse((962, 160, 978, 176), fill=(255, 95, 86))
-    draw.ellipse((988, 160, 1004, 176), fill=(255, 189, 46))
-    draw.ellipse((1014, 160, 1030, 176), fill=(39, 201, 63))
-    add_text(draw, (1060, 154), "vox-code  ·  ghostty float-on-top", FONT_SMALL, (206, 220, 234))
-
-    code_lines = [
-        ">>> /team",
-        "切换到 Plan-and-Execute 模式",
-        "",
-        ">>> 帮我分析当前项目架构",
-        "",
-        "🧠 思考过程:",
-        "1. 读取 README 与入口模块",
-        "2. 检查 Agent / Tool / Memory 分层",
-        "3. 输出 GUI 改造方案",
-        "",
-        "🤖 回复:",
-        "建议拆出 SessionController，",
-        "把终端 print 改造成事件流，",
-        "再由 GUI 壳接收状态和流式输出。",
-        "",
-        "📊 Token: 4820 输入 / 912 输出 / 5732 合计"
-    ]
-    y = 224
-    for line in code_lines:
-        fill = (187, 236, 198) if line.startswith(">>>") else (211, 223, 234)
-        if line.startswith("🤖"):
-            fill = (115, 215, 255)
-        elif line.startswith("🧠"):
-            fill = (255, 204, 112)
-        elif line.startswith("📊"):
-            fill = (156, 172, 188)
-        add_text(draw, (966, y), line, FONT_MONO, fill)
-        y += 34
-
-    bubble = speech_bubble(img, (1020, 740, 1458, 880), (245, 250, 255, 238), outline=(200, 214, 225, 255))
-    img = bubble
-    draw = ImageDraw.Draw(img)
-    add_text(draw, (1050, 770), "像一个终端助手常驻右下角。\n适合快速原型、开发者味很强。", FONT_BODY, (20, 33, 48))
-
-    card = rounded_box(img, (86, 230, 660, 670), 34, (255, 255, 255, 232), shadow=True)
-    img = card
-    draw = ImageDraw.Draw(img)
-    add_text(draw, (118, 268), "成品观感", FONT_H2, (18, 38, 58))
-    bullets = [
-        "像透明终端小窗，悬浮在桌面角落",
-        "支持置顶、半透明、无边框",
-        "主要交互还是输入命令或聊天",
-        "可以放 ASCII 角色或小头像，但不像真正桌宠",
-        "工程实现快，改造最省"
-    ]
-    y = 328
-    for item in bullets:
-        draw.ellipse((120, y + 9, 132, y + 21), fill=(66, 161, 255))
-        add_text(draw, (148, y), item, FONT_BODY, (34, 55, 76))
-        y += 58
-
-    footer = "关键词：终端感 / 透明浮窗 / 开发者工具 / 实现成本低"
-    add_text(draw, (88, 918), footer, FONT_SMALL, (210, 223, 238))
-
-    out = OUT_DIR / "ghostty_pet_concept.png"
-    img.save(out)
-    return out
-
-
 def draw_pet(draw, body_box, accent):
     x1, y1, x2, y2 = body_box
     draw.ellipse((x1 + 22, y2 - 26, x2 - 22, y2 + 18), fill=(18, 35, 56, 40))
@@ -267,7 +187,7 @@ def draw_pyside_mockup():
 
 
 def main():
-    outputs = [draw_ghostty_mockup(), draw_pyside_mockup()]
+    outputs = [draw_pyside_mockup()]
     for path in outputs:
         print(path)
 

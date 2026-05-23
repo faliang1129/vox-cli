@@ -170,7 +170,9 @@ class SubAgent:
                     budget.record_tool_calls(response.tool_calls)
                     _print_sub_tool_calls(self._name, response.tool_calls)
                     self._conversation_history.append(Message.assistant(
-                        response.reasoning_content, response.content, response.tool_calls
+                        content=response.content or "",
+                        reasoning_content=response.reasoning_content,
+                        tool_calls=response.tool_calls,
                     ))
                     stream_renderer.reset_between_iterations()
                     tool_results = self._execute_tool_calls(response.tool_calls)
@@ -179,7 +181,8 @@ class SubAgent:
                     continue
 
                 self._conversation_history.append(Message.assistant(
-                    response.reasoning_content, response.content
+                    content=response.content or "",
+                    reasoning_content=response.reasoning_content,
                 ))
                 stream_renderer.finish()
                 stats = self._format_token_stats(budget.total_input_tokens,

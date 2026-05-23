@@ -28,6 +28,10 @@ class OllamaClient(LlmClient):
     def provider_name(self) -> str:
         return "ollama"
 
+    @property
+    def supports_image_inputs(self) -> bool:
+        return False
+
     def _build_request(self, messages: list[Message],
                        tools: Optional[list[ToolDef]] = None) -> dict:
         body: dict = {
@@ -36,6 +40,8 @@ class OllamaClient(LlmClient):
             "messages": [],
         }
         for msg in messages:
+            if msg.attachments:
+                raise RuntimeError("当前 Ollama GUI 会话暂不支持图片输入，请切换到 OpenAI Compatible 模型。")
             m: dict = {"role": msg.role}
             if msg.content is not None:
                 m["content"] = msg.content

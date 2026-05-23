@@ -1,15 +1,20 @@
 """Agent 核心类 - 实现 ReAct 循环"""
 
+from __future__ import annotations
+
 import json
 import time
 import logging
 from typing import List, Optional, Dict
 
+from ..chat import GuiChatSubmission
 from ..llm.base import LlmClient, Message, ToolCall
 from ..memory.manager import MemoryManager
 from ..tool import ToolRegistry, ToolInvocation
 from ..util.ansi import heading, section, subtle
+from ..util.animation import ThinkingDots, Typewriter, ToolCallAnimator
 from .agent_budget import AgentBudget, ExitReason
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -75,16 +80,24 @@ class Agent:
 
     # ---- Public API ----
 
-    def run(self, user_input: str) -> str:
-        logger.info("ReAct run started: inputLength=%d", len(user_input) if user_input else 0)
-        self._memory_manager.add_user_message(user_input)
+    def run(self, user_input: str | GuiChatSubmission) -> str:
+        submission = user_input if isinstance(user_input, GuiChatSubmission) else None
+        input_text = submission.summary_text if submission is not None else user_input
+        logger.info("ReAct run started: inputLength=%d", len(input_text) if input_text else 0)
+        self._memory_manager.add_user_message(input_text)
 
-        memory_context = self._memory_manager.build_context_for_query(user_input, 500)
+        memory_context = self._memory_manager.build_context_for_query(input_text, 500)
         self._update_system_prompt(memory_context)
 
-        self._conversation_history.append(Message.user(user_input))
+        if submission is not None:
+            self._conversation_history.append(
+                Message.user(submission.text, attachments=submission.attachments)
+            )
+        else:
+            self._conversation_history.append(Message.user(user_input))
         reasoning_transcript: List[str] = []
-        stream_renderer = _StreamRenderer()
+        thinking_dots = ThinkingDots()
+        stream_renderer = _StreamRenderer(stop_thinking=thinking_dots.stop)
 
         start_nanos = time.time()
         budget = AgentBudget.from_env()
@@ -102,6 +115,7 @@ class Agent:
                 return f"❌ {desc}\n\n{stats}"
 
             iteration = budget.begin_iteration()
+            thinking_dots.start()
 
             try:
                 response = self._llm.chat(
@@ -109,6 +123,7 @@ class Agent:
                     self._tool_registry.get_tool_definitions(),
                     stream_renderer,
                 )
+                thinking_dots.stop()
 
                 if response is None:
                     return "❌ LLM 返回空响应，请检查模型接口是否正常"
@@ -120,24 +135,31 @@ class Agent:
                     logger.info("LLM requested %d tool call(s) in iteration %d",
                                 len(response.tool_calls), iteration)
                     budget.record_tool_calls(response.tool_calls)
-                    _print_tool_calls(response.tool_calls)
+
+                    tool_anim = ToolCallAnimator()
+                    _format_tool_calls_info(response.tool_calls, tool_anim)
 
                     self._conversation_history.append(Message.assistant(
-                        response.reasoning_content, response.content, response.tool_calls
+                        content=response.content or "",
+                        reasoning_content=response.reasoning_content,
+                        tool_calls=response.tool_calls,
                     ))
-
-                    stream_renderer.reset_between_iterations()
 
                     tool_results = self._execute_tool_calls(response.tool_calls, iteration)
                     for tr in tool_results:
                         self._memory_manager.add_tool_result(tr.name, tr.result)
                         self._conversation_history.append(Message.tool(tr.id, tr.result))
 
+                    # 原地将工具调用标记为 ✓（finish_all 必须在 reset 之前，否则多出的空行会破坏 ANSI 定位）
+                    tool_anim.finish_all()
+
+                    stream_renderer.reset_between_iterations()
                     continue
 
                 self._append_reasoning(reasoning_transcript, response.reasoning_content)
                 self._conversation_history.append(Message.assistant(
-                    response.reasoning_content, response.content
+                    content=response.content or "",
+                    reasoning_content=response.reasoning_content,
                 ))
 
                 self._memory_manager.add_assistant_message(response.content or "")
@@ -160,6 +182,7 @@ class Agent:
                 return result + "\n\n" + subtle(stats)
 
             except Exception as e:
+                thinking_dots.stop()
                 logger.error("LLM call failed in ReAct loop", exc_info=True)
                 return f"❌ 调用 LLM 失败: {e}"
 
@@ -168,6 +191,11 @@ class Agent:
         self._conversation_history.clear()
         self._conversation_history.append(system_msg)
         self._memory_manager.clear_short_term()
+
+    def clear_attachment_context(self):
+        for message in self._conversation_history:
+            if message.attachments:
+                message.attachments = ()
 
     def get_context_status(self) -> str:
         system_count = user_count = assistant_count = tool_count = 0
@@ -245,7 +273,21 @@ class Agent:
         )
 
 
+def _format_tool_calls_info(tool_calls: List, anim: ToolCallAnimator):
+    """用 ToolCallAnimator 展示工具调用信息"""
+    for tc in tool_calls:
+        if isinstance(tc, ToolCall):
+            name = tc.name
+            args_json = tc.arguments
+        else:
+            name = tc.get("function", {}).get("name", "")
+            args_json = tc.get("function", {}).get("arguments", "{}")
+        detail = _extract_key_param(name, args_json)
+        anim.running(name, detail)
+
+
 def _print_tool_calls(tool_calls: List):
+    """Legacy: 直接打印工具调用（保持向后兼容）"""
     grouped: Dict[str, list] = {}
     for tc in tool_calls:
         if isinstance(tc, ToolCall):
@@ -298,14 +340,32 @@ def _extract_key_param(tool_name: str, args_json: str) -> str:
 
 
 class _StreamRenderer:
-    """流式输出渲染器，将 reasoning_content 与 content 分区展示。"""
-    def __init__(self):
+    """流式输出渲染器 + Claude Code 风格动画
+
+    - LLM 思考期间显示 ● ● ● 脉冲动画
+    - 首个 delta 到达时立即停止动画（防覆盖），切换为打字机效果
+    """
+    def __init__(self, stop_thinking=None):
         self._pending_reasoning = ""
         self._late_reasoning = ""
         self._reasoning_heading_printed = False
         self._reasoning_started = False
         self._content_started = False
         self._streamed_output = False
+        self._tw = Typewriter()
+        self._stop_thinking = stop_thinking
+        self._thinking_stopped = False
+
+    def _stop_dots(self):
+        """首个 delta 到达时立刻停止 thinking 动画（防 \r 覆盖内容）"""
+        if not self._thinking_stopped and self._stop_thinking:
+            self._stop_thinking()
+            self._thinking_stopped = True
+
+    def _ensure_clean_line(self):
+        """清空当前行并将光标移至行首（防线程残留 \r 字符）"""
+        sys.stdout.write("\r\033[K")
+        sys.stdout.flush()
 
     def __call__(self, delta: str):
         if delta:
@@ -314,6 +374,7 @@ class _StreamRenderer:
     def on_reasoning_delta(self, delta: str):
         if not delta:
             return
+        self._stop_dots()
         if self._content_started:
             self._late_reasoning += delta
             return
@@ -323,40 +384,45 @@ class _StreamRenderer:
                 return
             if "\n" not in self._pending_reasoning and "\r" not in self._pending_reasoning:
                 return
+            self._ensure_clean_line()
             self._print_reasoning_heading()
-            print(self._pending_reasoning, end="", flush=True)
+            self._tw.write_fast(self._pending_reasoning)
             self._pending_reasoning = ""
             self._reasoning_started = True
             self._streamed_output = True
         else:
-            print(delta, end="", flush=True)
+            self._tw.write(delta)
 
     def on_content_delta(self, delta: str):
         if not delta:
             return
+        self._stop_dots()
         if not self._content_started:
             if self._reasoning_started:
-                print()
+                self._tw.newline()
             elif self._pending_reasoning.strip():
+                self._ensure_clean_line()
                 self._print_reasoning_heading()
-                print(self._pending_reasoning, end="", flush=True)
-                print()
+                self._tw.write_fast(self._pending_reasoning)
+                self._tw.newline()
                 self._pending_reasoning = ""
                 self._reasoning_started = True
+            self._ensure_clean_line()
             print(section("🤖 回复"))
             self._content_started = True
             self._streamed_output = True
-        print(delta, end="", flush=True)
+        self._tw.write(delta)
 
     def _on_content_delta(self, delta: str):
         self.on_content_delta(delta)
 
     def reset_between_iterations(self):
+        self._thinking_stopped = False
         self._pending_reasoning = ""
         late = self._late_reasoning.strip()
         if late:
             print(f"\n{heading('🧠 补充思考')}")
-            print(late)
+            self._tw.write_fast(late)
             self._late_reasoning = ""
             self._streamed_output = True
         self._reasoning_started = False
@@ -368,7 +434,7 @@ class _StreamRenderer:
         late = self._late_reasoning.strip()
         if late:
             print(f"\n{heading('🧠 补充思考')}")
-            print(late)
+            self._tw.write_fast(late)
             self._late_reasoning = ""
             self._streamed_output = True
         if self._streamed_output:

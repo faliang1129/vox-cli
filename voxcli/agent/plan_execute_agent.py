@@ -281,7 +281,9 @@ class PlanExecuteAgent:
             all_results.append(response.content or "")
             _print_task_tool_calls(task.id, response.tool_calls)
             messages.append(Message.assistant(
-                response.reasoning_content, response.content, response.tool_calls
+                content=response.content or "",
+                reasoning_content=response.reasoning_content,
+                tool_calls=response.tool_calls,
             ))
             renderer.reset_between_iterations()
 

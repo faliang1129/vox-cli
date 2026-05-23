@@ -14,9 +14,10 @@ class ParsedCommand:
 
 class CliCommandParser:
     COMMANDS = {
-        "/model": "切换 LLM 模型（用法: /model <provider>[:<model>]）",
+        "/model": "切换 LLM 模型（用法: /model <preset-id|provider[:<model>]>）",
         "/plan": "显示当前执行计划",
         "/team": "切换多 Agent 协作模式",
+        "/style": "切换展示模式（work/pet）",
         "/hitl": "设置人工审批模式（auto/always/never）",
         "/policy": "查看或修改安全策略",
         "/audit": "查看审计日志",
@@ -50,9 +51,10 @@ class CliCommandParser:
     @staticmethod
     def print_help():
         print("可用命令:")
-        print("  /model <provider>[:<model>]  切换模型 (glm/deepseek/ollama)")
+        print("  /model <preset-id|provider[:<model>]>  切换模型")
         print("  /plan                       查看当前执行计划")
         print("  /team                       切换多 Agent 协作模式")
+        print("  /style <work|pet>           切换展示模式")
         print("  /hitl <mode>                设置审批模式 (auto/always/never)")
         print("  /policy                     查看安全策略")
         print("  /audit                      查看审计日志")

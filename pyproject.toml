@@ -13,11 +13,13 @@ dependencies = [
     "pyyaml>=6.0,<7",
     "beautifulsoup4>=4.12,<5",
     "lxml>=5.1,<6",
+    "PySide6>=6.8,<7",
     "readline-osx>=1.0; sys_platform == 'darwin'",
 ]
 
 [project.scripts]
-vox-code = "paicli.__main__:main"
+vox-code = "voxcli.__main__:main"
+vox-pet = "voxcli.gui.main:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["paicli"]
+packages = ["voxcli"]

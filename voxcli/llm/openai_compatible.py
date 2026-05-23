@@ -1,11 +1,14 @@
 """OpenAI 兼容 API 客户端（支持 SSE 流式）"""
 
+import base64
 import json
 import logging
+from pathlib import Path
 from typing import Optional
 
 import httpx
 
+from ..chat import SUPPORTED_IMAGE_MIME_TYPES
 from .base import (
     LlmClient, Message, ChatResponse, ToolCall, ToolDef,
     StreamListener, STREAM_LISTENER_NOOP,
@@ -31,6 +34,47 @@ class OpenAiCompatibleClient(LlmClient):
     def provider_name(self) -> str:
         return self._provider_name
 
+    @property
+    def supports_image_inputs(self) -> bool:
+        return True
+
+    def _encode_image_attachment(self, attachment) -> dict:
+        file_path = Path(attachment.file_path)
+        if attachment.mime_type not in SUPPORTED_IMAGE_MIME_TYPES:
+            raise ValueError(
+                f"仅支持 png/jpg/jpeg/webp 图片，当前文件不受支持: {attachment.display_name}"
+            )
+        if not file_path.exists():
+            raise FileNotFoundError(f"图片不存在: {file_path}")
+        if not file_path.is_file():
+            raise ValueError(f"不是有效的图片文件: {file_path}")
+        try:
+            data = file_path.read_bytes()
+        except OSError as exc:
+            raise RuntimeError(f"读取图片失败: {attachment.display_name}: {exc}") from exc
+        try:
+            encoded = base64.b64encode(data).decode("ascii")
+        except Exception as exc:
+            raise RuntimeError(f"图片编码失败: {attachment.display_name}: {exc}") from exc
+        return {
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:{attachment.mime_type};base64,{encoded}",
+            },
+        }
+
+    def _build_message_content(self, message: Message):
+        if not message.attachments:
+            return message.content
+
+        blocks: list[dict] = []
+        text = message.content or ""
+        if text:
+            blocks.append({"type": "text", "text": text})
+        for attachment in message.attachments:
+            blocks.append(self._encode_image_attachment(attachment))
+        return blocks
+
     def _build_request(self, messages: list[Message],
                        tools: Optional[list[ToolDef]] = None) -> dict:
         body = {
@@ -38,11 +82,13 @@ class OpenAiCompatibleClient(LlmClient):
             "stream": True,
             "messages": [],
         }
+        allow_reasoning_content = self._provider_name not in {"deepseek"}
         for msg in messages:
             m: dict = {"role": msg.role}
-            if msg.content is not None:
-                m["content"] = msg.content
-            if msg.reasoning_content:
+            content = self._build_message_content(msg)
+            if content is not None:
+                m["content"] = content
+            if allow_reasoning_content and msg.reasoning_content:
                 m["reasoning_content"] = msg.reasoning_content
             if msg.tool_calls:
                 m["tool_calls"] = [
@@ -55,6 +101,10 @@ class OpenAiCompatibleClient(LlmClient):
                 ]
             if msg.tool_call_id:
                 m["tool_call_id"] = msg.tool_call_id
+            if msg.role == "assistant" and msg.tool_calls and "content" not in m:
+                m["content"] = ""
+            if msg.role == "tool" and "content" not in m:
+                m["content"] = ""
             body["messages"].append(m)
 
         if tools:
@@ -129,7 +179,15 @@ class OpenAiCompatibleClient(LlmClient):
             headers=headers
         )
 
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            detail = response.text.strip()
+            if detail:
+                raise RuntimeError(
+                    f"{self._provider_name} 接口报错 {response.status_code}: {detail}"
+                ) from exc
+            raise
 
         content_parts: list[str] = []
         reasoning_parts: list[str] = []

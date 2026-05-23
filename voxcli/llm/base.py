@@ -1,7 +1,9 @@
 """LLM 客户端接口与消息类型"""
 
 from dataclasses import dataclass, field
-from typing import Optional, Protocol
+from typing import Optional, Protocol, Sequence
+
+from ..chat import ChatAttachment
 
 
 @dataclass
@@ -22,6 +24,7 @@ class ToolDef:
 class Message:
     role: str  # system, user, assistant, tool
     content: Optional[str] = None
+    attachments: tuple[ChatAttachment, ...] = field(default_factory=tuple)
     reasoning_content: Optional[str] = None
     tool_calls: Optional[list[ToolCall]] = None
     tool_call_id: Optional[str] = None
@@ -31,8 +34,12 @@ class Message:
         return cls(role="system", content=content)
 
     @classmethod
-    def user(cls, content: str) -> "Message":
-        return cls(role="user", content=content)
+    def user(
+        cls,
+        content: str,
+        attachments: Optional[Sequence[ChatAttachment]] = None,
+    ) -> "Message":
+        return cls(role="user", content=content, attachments=tuple(attachments or ()))
 
     @classmethod
     def assistant(cls, content: str = "", reasoning_content: Optional[str] = None,
@@ -81,3 +88,6 @@ class LlmClient(Protocol):
 
     @property
     def provider_name(self) -> str: ...
+
+    @property
+    def supports_image_inputs(self) -> bool: ...
