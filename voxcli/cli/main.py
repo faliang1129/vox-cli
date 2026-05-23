@@ -421,7 +421,7 @@ def main(argv: Optional[Sequence[str]] = None):
 def _animate_startup():
     """Claude Code 风格的启动动画"""
     print(heading("╭──────────────────────────────╮"))
-    print(heading("│       Vox Code v2.0.0         │"))
+    print(heading("│       Vox Code v2.0.1         │"))
     print(heading("│   Web-aware Tool CLI           │"))
     print(heading("╰──────────────────────────────╯"))
     dots = ProgressDots("Initializing")

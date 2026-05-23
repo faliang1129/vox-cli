@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vox-code"
-version = "2.0.0"
+version = "2.0.1"
 description = "Web-aware Tool CLI - 支持 ReAct、Plan-and-Execute、Memory、RAG、Multi-Agent、HITL"
 readme = "README.md"
 requires-python = ">=3.11"

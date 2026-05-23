@@ -88,7 +88,10 @@ class OpenAiCompatibleClient(LlmClient):
             "stream": True,
             "messages": [],
         }
-        allow_reasoning_content = self._provider_name not in {"deepseek", "qwen"}
+        # DeepSeek thinking mode requires previous reasoning_content to be
+        # passed back on subsequent turns. Qwen compatible mode still works
+        # better without this field by default.
+        allow_reasoning_content = self._provider_name != "qwen"
         for msg in messages:
             m: dict = {"role": msg.role}
             content = self._build_message_content(msg)
