@@ -509,6 +509,13 @@ class PetWidget(QWidget):
         self._bubble_timer.setInterval(9000)
         self._bubble_timer.timeout.connect(self._hide_bubble)
 
+        self._idle_timer = QTimer(self)
+        self._idle_timer.setSingleShot(True)
+        self._idle_timer.setInterval(30000)
+        self._idle_timer.timeout.connect(self._go_sleep)
+
+        self._saved_action = 0
+
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.Tool
@@ -533,13 +540,18 @@ class PetWidget(QWidget):
         self._mode_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._mode_label.hide()
         self.set_skin("glass")
+        self._idle_timer.start()
 
     def update_session_state(self, reply: SessionReply):
         return
 
     def set_thinking(self, thinking: bool):
         self._thinking = thinking
-        self._status_action = 7 if thinking else 0
+        self._status_action = 1 if thinking else 0  # 1=run for spritesheet
+        if thinking:
+            self._idle_timer.stop()
+        else:
+            self._idle_timer.start()
         self.update()
 
     def speak(self, text: str):
@@ -548,6 +560,25 @@ class PetWidget(QWidget):
 
     def _hide_bubble(self):
         self.bubble.hide()
+
+    def happy(self):
+        self._status_action = 3
+        QTimer.singleShot(1000, self._reset_action)
+        self.update()
+
+    def _go_sleep(self):
+        """Idle timeout → sleeping pose."""
+        if self._status_action == 0 and not self._thinking:
+            self._status_action = 6
+            self.update()
+
+    def _reset_idle_timer(self):
+        """Reset idle countdown and wake from sleep."""
+        self._idle_timer.stop()
+        self._idle_timer.start()
+        if self._status_action == 6:
+            self._status_action = 0
+            self.update()
 
     def _tick(self):
         self._blink = not self._blink
@@ -558,6 +589,8 @@ class PetWidget(QWidget):
         if event.button() == Qt.MouseButton.LeftButton:
             self._press_global_pos = event.globalPosition().toPoint()
             self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self._saved_action = self._status_action
+            self._reset_idle_timer()
             event.accept()
             return
         if event.button() == Qt.MouseButton.RightButton:
@@ -570,6 +603,12 @@ class PetWidget(QWidget):
         if self._drag_offset is not None and event.buttons() & Qt.MouseButton.LeftButton:
             self.move(event.globalPosition().toPoint() - self._drag_offset)
             self.position_changed.emit()
+            # Show "move" (2) once dragged past threshold
+            start = self._press_global_pos
+            if start and (event.globalPosition().toPoint() - start).manhattanLength() > 10:
+                self._status_action = 2
+                self.update()
+            self._reset_idle_timer()
             event.accept()
             return
         super().mouseMoveEvent(event)
@@ -579,10 +618,18 @@ class PetWidget(QWidget):
             moved = 0
             if self._press_global_pos is not None:
                 moved = (event.globalPosition().toPoint() - self._press_global_pos).manhattanLength()
-            if self._drag_offset is not None and moved < 8:
-                self.toggled.emit()
+            if self._drag_offset is not None and moved < 10:
+                # Click → happy (3) + open chat
+                self.happy()
+                QTimer.singleShot(60, self.toggled.emit)
+            else:
+                # Drag ended → restore saved state
+                saved = getattr(self, '_saved_action', 0)
+                self._status_action = saved if not self._thinking else 1
+                self.update()
             self._drag_offset = None
             self._press_global_pos = None
+            self._reset_idle_timer()
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -599,6 +646,7 @@ class PetWidget(QWidget):
                       blink=self._blink, float_phase=self._float_phase)
 
     def enterEvent(self, event):
+        self._reset_idle_timer()
         self.hover_changed.emit(True)
         super().enterEvent(event)
 
@@ -631,5 +679,5 @@ class PetWidget(QWidget):
         self.update()
 
     def _reset_action(self):
-        self._status_action = 7 if self._thinking else 0
+        self._status_action = 1 if self._thinking else 0  # 1=run
         self.update()
