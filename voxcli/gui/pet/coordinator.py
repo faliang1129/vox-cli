@@ -680,7 +680,8 @@ class PetCoordinator(QWidget):
         if client is None:
             raise RuntimeError(
                 "无法创建 LLM 客户端。请至少配置一组模型环境变量，例如 "
-                "GLM_API_KEY/GLM_MODEL、DEEPSEEK_API_KEY/DEEPSEEK_MODEL 或 "
+                "GLM_API_KEY/GLM_MODEL、DEEPSEEK_API_KEY/DEEPSEEK_MODEL、"
+                "QWEN_API_KEY/QWEN_MODEL 或 "
                 "OLLAMA_MODEL/OLLAMA_BASE_URL。"
             )
         self._gui_model_source = self._format_model_source("跟随全局", client.provider_name, client.model_name)

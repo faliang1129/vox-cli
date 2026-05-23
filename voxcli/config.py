@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
+import re
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -116,9 +117,14 @@ class VoxCodeConfig:
     GUI_MODEL_FILE = CONFIG_DIR / "gui-model.json"
 
     _PROVIDER_ENV_KEYS = {
-        "glm": ("GLM_API_KEY", "GLM_MODEL", "GLM_BASE_URL"),
-        "deepseek": ("DEEPSEEK_API_KEY", "DEEPSEEK_MODEL", "DEEPSEEK_BASE_URL"),
-        "ollama": ("", "OLLAMA_MODEL", "OLLAMA_BASE_URL"),
+        "glm": (("GLM_API_KEY",), ("GLM_MODEL",), ("GLM_BASE_URL",)),
+        "deepseek": (("DEEPSEEK_API_KEY",), ("DEEPSEEK_MODEL",), ("DEEPSEEK_BASE_URL",)),
+        "qwen": (
+            ("QWEN_API_KEY", "DASHSCOPE_API_KEY"),
+            ("QWEN_MODEL", "DASHSCOPE_MODEL"),
+            ("QWEN_BASE_URL", "DASHSCOPE_BASE_URL"),
+        ),
+        "ollama": ((), ("OLLAMA_MODEL",), ("OLLAMA_BASE_URL",)),
     }
 
     def __init__(self):
@@ -151,10 +157,13 @@ class VoxCodeConfig:
         return cls.config_dir() / "gui-model.json"
 
     @staticmethod
-    def _read_env(key: str) -> Optional[str]:
-        val = os.environ.get(key)
-        if val and val.strip():
-            return val.strip()
+    def _read_env(keys: str | tuple[str, ...]) -> Optional[str]:
+        if isinstance(keys, str):
+            keys = (keys,)
+        for key in keys:
+            val = os.environ.get(key)
+            if val and val.strip():
+                return val.strip()
         return None
 
     def _ensure_catalog_loaded(self):
@@ -342,6 +351,14 @@ class VoxCodeConfig:
                 presets.append(preset)
         return presets
 
+    def find_model_preset(self, provider: str, model: str) -> Optional[ModelPreset]:
+        normalized_provider = provider.strip().lower()
+        normalized_model = model.strip()
+        for preset in self.model_presets():
+            if preset.provider == normalized_provider and preset.model == normalized_model:
+                return preset
+        return None
+
     def get_model_preset(self, preset_id: str) -> Optional[ModelPreset]:
         target = preset_id.strip()
         for preset in self.model_presets():
@@ -365,6 +382,29 @@ class VoxCodeConfig:
         self.active_model_preset = preset_id
         self.save()
 
+    def set_provider_config(self, provider: str, config: ProviderConfig):
+        self.providers[provider.strip().lower()] = config
+
+    def persist_model_selection(self, provider: str, model: str):
+        normalized_provider = provider.strip().lower()
+        normalized_model = model.strip()
+        if not normalized_provider:
+            return
+
+        provider_config = self.providers.get(normalized_provider, ProviderConfig())
+        if normalized_model:
+            provider_config.model = normalized_model
+        self.providers[normalized_provider] = provider_config
+        self.default_provider = normalized_provider
+
+        if normalized_model:
+            preset = self.find_model_preset(normalized_provider, normalized_model)
+            if preset is None:
+                preset = self._save_custom_model_preset(normalized_provider, normalized_model)
+            self.active_model_preset = preset.id
+
+        self.save()
+
     def set_active_persona(self, persona_id: str):
         self.active_persona = persona_id
         self.save()
@@ -380,6 +420,71 @@ class VoxCodeConfig:
     def set_active_pet(self, pet_id: str):
         self.active_pet = pet_id
         self.save()
+
+    def _save_custom_model_preset(self, provider: str, model: str) -> ModelPreset:
+        preset = ModelPreset(
+            id=f"custom-{provider}-{self._slugify(model)}",
+            label=f"{self._provider_label(provider)} {model}",
+            provider=provider,
+            model=model,
+            description="用户自定义模型。",
+        )
+
+        override = load_catalog_from_file(self.catalog_file())
+        existing_presets = override.get("modelPresets", [])
+        if not isinstance(existing_presets, list):
+            existing_presets = []
+
+        updated = False
+        merged_presets: list[dict] = []
+        for item in existing_presets:
+            if isinstance(item, dict) and str(item.get("id", "")).strip() == preset.id:
+                merged_presets.append(
+                    {
+                        "id": preset.id,
+                        "label": preset.label,
+                        "provider": preset.provider,
+                        "model": preset.model,
+                        "description": preset.description,
+                    }
+                )
+                updated = True
+            else:
+                merged_presets.append(item)
+
+        if not updated:
+            merged_presets.append(
+                {
+                    "id": preset.id,
+                    "label": preset.label,
+                    "provider": preset.provider,
+                    "model": preset.model,
+                    "description": preset.description,
+                }
+            )
+
+        override["modelPresets"] = merged_presets
+        self.catalog_file().parent.mkdir(parents=True, exist_ok=True)
+        self.catalog_file().write_text(
+            json.dumps(override, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        self.reload_catalog()
+        return preset
+
+    @staticmethod
+    def _slugify(value: str) -> str:
+        slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+        return slug or "model"
+
+    @staticmethod
+    def _provider_label(provider: str) -> str:
+        return {
+            "glm": "GLM",
+            "deepseek": "DeepSeek",
+            "qwen": "Qwen",
+            "ollama": "Ollama",
+        }.get(provider, provider.upper())
 
 
 class GuiModelConfigStore:

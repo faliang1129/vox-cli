@@ -63,6 +63,13 @@ DEFAULT_CATALOG: dict[str, Any] = {
             "description": "适合通用编码与问答。",
         },
         {
+            "id": "qwen-plus",
+            "label": "Qwen Plus",
+            "provider": "qwen",
+            "model": "qwen-plus",
+            "description": "阿里云百炼 Qwen 在线模型。",
+        },
+        {
             "id": "ollama-qwen2.5-7b",
             "label": "Ollama Qwen 2.5 7B",
             "provider": "ollama",

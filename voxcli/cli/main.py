@@ -1,12 +1,13 @@
 """CLI 主程序 - REPL 循环"""
 
+import getpass
 import logging
 import os
 import sys
-from typing import Optional
+from typing import Optional, Sequence
 
-from ..config import pai_config
-from ..llm.factory import create_from_config
+from ..config import ProviderConfig, pai_config
+from ..llm.factory import create_from_config, default_base_url_for, default_model_for
 from ..agent import Agent, PlanExecuteAgent, AgentOrchestrator
 from ..agent.plan_execute_agent import PlanReviewHandler, PlanReviewDecision, PlanReviewAction
 from ..tool import ToolRegistry
@@ -18,6 +19,7 @@ from ..util.animation import ProgressDots, Typewriter
 from .parser import CliCommandParser, ParsedCommand
 
 logger = logging.getLogger(__name__)
+_SUPPORTED_PROVIDERS = ("glm", "deepseek", "qwen", "ollama")
 
 
 def _init_logging(debug: bool = False):
@@ -41,7 +43,9 @@ def run_repl():
         print("   至少需要配置一个模型提供商:")
         print("   - GLM:  GLM_API_KEY + GLM_MODEL")
         print("   - DeepSeek: DEEPSEEK_API_KEY + DEEPSEEK_MODEL")
+        print("   - Qwen: QWEN_API_KEY + QWEN_MODEL")
         print("   - Ollama: OLLAMA_MODEL + OLLAMA_BASE_URL")
+        print("   也可以先运行: vox-code init")
         sys.exit(1)
 
     tool_registry = ToolRegistry()
@@ -118,6 +122,9 @@ def _handle_command(parsed: ParsedCommand, agent, plan_agent, orchestrator,
     if cmd == "/exit":
         print(subtle("再见！"))
         sys.exit(0)
+
+    elif cmd == "/init":
+        _cmd_init()
 
     elif cmd == "/help":
         CliCommandParser.print_help()
@@ -208,13 +215,13 @@ def _cmd_model(parsed, agent, plan_agent, orchestrator, llm_client, presenter):
         if new_client is None:
             print(f"  {error('✗')} {subtle(f'Failed to create client for provider={provider}')}")
             return
-        if preset is not None:
-            pai_config.set_active_model_preset(preset.id)
+        selected_model = getattr(new_client, "model_name", model_name or "") or (preset.model if preset else "")
+        pai_config.persist_model_selection(provider, selected_model)
         agent.set_llm_client(new_client)
         plan_agent._llm = new_client
         orchestrator._llm = new_client
         presenter._llm = new_client
-        model_desc = provider + (f" ({model_name})" if model_name else "")
+        model_desc = provider + (f" ({selected_model})" if selected_model else "")
         print(f"  {success('✓')} {subtle('Model switched to: ' + model_desc)}")
     except Exception as e:
         print(f"切换模型失败: {e}")
@@ -274,8 +281,141 @@ def _cmd_save(parsed, agent):
         print(f"保存失败: {e}")
 
 
-def main():
-    run_repl()
+def _cmd_init():
+    try:
+        print()
+        print(heading("⚙️ Vox Code 初始化"))
+        print(subtle(f"  配置文件: {pai_config.config_file()}"))
+        print(subtle("  环境变量仍然优先于 config.json。"))
+        print()
+
+        provider = _prompt_provider()
+        current = pai_config.providers.get(provider, ProviderConfig())
+        default_model = current.model or default_model_for(provider)
+        default_base_url = current.base_url or default_base_url_for(provider)
+        model = _prompt_text("模型名", default_model, allow_empty=False)
+        base_url = _prompt_text("Base URL", default_base_url, allow_empty=False)
+        api_key = ""
+        if provider != "ollama":
+            api_key = _prompt_secret("API Key", current.api_key, required=True)
+
+        provider_config = ProviderConfig(
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+        )
+        pai_config.set_provider_config(provider, provider_config)
+        pai_config.persist_model_selection(provider, model)
+
+        print()
+        print(f"  {success('✓')} {subtle('配置已保存到: ' + str(pai_config.config_file()))}")
+        print(f"  {success('✓')} {subtle('默认模型: ' + provider + ' (' + model + ')')}")
+        if provider == "ollama":
+            print(subtle("  下一步: 确认本机 Ollama 已启动，然后运行 vox-code"))
+        else:
+            print(subtle("  下一步: 运行 vox-code"))
+    except (EOFError, KeyboardInterrupt):
+        print()
+        print(subtle("已取消初始化。"))
+
+
+def _prompt_provider() -> str:
+    current = pai_config.default_provider_name
+    default_provider = current if current in _SUPPORTED_PROVIDERS else "glm"
+    print()
+    print("选择模型提供商:")
+    for idx, provider in enumerate(_SUPPORTED_PROVIDERS, start=1):
+        suffix = " (默认)" if provider == default_provider else ""
+        print(f"  {idx}. {_provider_label(provider)}{suffix}")
+
+    while True:
+        raw = input(f"提供商 [1-{len(_SUPPORTED_PROVIDERS)} / {default_provider}]: ").strip().lower()
+        if not raw:
+            return default_provider
+        if raw.isdigit():
+            index = int(raw) - 1
+            if 0 <= index < len(_SUPPORTED_PROVIDERS):
+                return _SUPPORTED_PROVIDERS[index]
+        if raw in _SUPPORTED_PROVIDERS:
+            return raw
+        print("请输入 1/2/3/4 或 provider 名称（glm、deepseek、qwen、ollama）。")
+
+
+def _prompt_text(label: str, default: str = "", allow_empty: bool = True) -> str:
+    while True:
+        suffix = f" [{default}]" if default else ""
+        raw = input(f"{label}{suffix}: ").strip()
+        if raw:
+            return raw
+        if default:
+            return default
+        if allow_empty:
+            return ""
+        print(f"{label} 不能为空。")
+
+
+def _prompt_secret(label: str, current: str = "", required: bool = False) -> str:
+    masked = _mask_secret(current)
+    suffix = f" [{masked}]" if masked else ""
+    while True:
+        raw = getpass.getpass(f"{label}{suffix}: ").strip()
+        if raw:
+            return raw
+        if current:
+            return current
+        if not required:
+            return ""
+        print(f"{label} 不能为空。")
+
+
+def _mask_secret(value: str) -> str:
+    if not value:
+        return ""
+    if len(value) <= 8:
+        return "*" * len(value)
+    return value[:4] + "*" * (len(value) - 8) + value[-4:]
+
+
+def _provider_label(provider: str) -> str:
+    return {
+        "glm": "GLM",
+        "deepseek": "DeepSeek",
+        "qwen": "Qwen",
+        "ollama": "Ollama",
+    }.get(provider, provider.upper())
+
+
+def _print_cli_usage():
+    print("用法:")
+    print("  vox-code                启动交互式 REPL")
+    print("  vox-code init           初始化模型配置")
+    print("  vox-code config-path    显示配置文件路径")
+    print("  vox-code --version      显示版本")
+
+
+def main(argv: Optional[Sequence[str]] = None):
+    args = list(sys.argv[1:] if argv is None else argv)
+    if not args:
+        run_repl()
+        return
+
+    command = args[0].strip().lower()
+    if command in {"-h", "--help", "help"}:
+        _print_cli_usage()
+        return
+    if command in {"-v", "--version", "version"}:
+        from .. import __version__
+        print(__version__)
+        return
+    if command == "init":
+        _cmd_init()
+        return
+    if command == "config-path":
+        print(pai_config.config_file())
+        return
+
+    print(f"未知命令: {args[0]}")
+    _print_cli_usage()
 
 
 def _animate_startup():
@@ -289,7 +429,7 @@ def _animate_startup():
     import time
     time.sleep(0.4)
     dots.stop(success("  Ready"))
-    print(subtle("  /help 查看可用命令, exit 或 /exit 退出"))
+    print(subtle("  /help 查看可用命令, /init 初始化配置, exit 或 /exit 退出"))
     print()
 
 

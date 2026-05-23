@@ -88,7 +88,7 @@ class OpenAiCompatibleClient(LlmClient):
             "stream": True,
             "messages": [],
         }
-        allow_reasoning_content = self._provider_name not in {"deepseek"}
+        allow_reasoning_content = self._provider_name not in {"deepseek", "qwen"}
         for msg in messages:
             m: dict = {"role": msg.role}
             content = self._build_message_content(msg)

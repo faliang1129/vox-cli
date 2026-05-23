@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """LLM 客户端工厂 - 从环境变量读取模型配置"""
 
 import os
@@ -15,6 +17,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_MODELS = {
     "glm": "glm-5.1",
     "deepseek": "deepseek-chat",
+    "qwen": "qwen-plus",
     "ollama": "qwen2.5:7b",
     "codex": "gpt-5-codex",
     "claude-code": "claude-sonnet-4-20250514",
@@ -24,6 +27,7 @@ _DEFAULT_MODELS = {
 _DEFAULT_URLS = {
     "glm": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
     "deepseek": "https://api.deepseek.com/chat/completions",
+    "qwen": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
     "ollama": "http://localhost:11434",
     "codex": "",
     "claude-code": "",
@@ -31,20 +35,37 @@ _DEFAULT_URLS = {
 
 # env key 映射
 _ENV_KEYS = {
-    "glm": ("GLM_API_KEY", "GLM_MODEL", "GLM_BASE_URL"),
-    "deepseek": ("DEEPSEEK_API_KEY", "DEEPSEEK_MODEL", "DEEPSEEK_BASE_URL"),
-    "ollama": (None, "OLLAMA_MODEL", "OLLAMA_BASE_URL"),
+    "glm": (("GLM_API_KEY",), ("GLM_MODEL",), ("GLM_BASE_URL",)),
+    "deepseek": (("DEEPSEEK_API_KEY",), ("DEEPSEEK_MODEL",), ("DEEPSEEK_BASE_URL",)),
+    "qwen": (
+        ("QWEN_API_KEY", "DASHSCOPE_API_KEY"),
+        ("QWEN_MODEL", "DASHSCOPE_MODEL"),
+        ("QWEN_BASE_URL", "DASHSCOPE_BASE_URL"),
+    ),
+    "ollama": (None, ("OLLAMA_MODEL",), ("OLLAMA_BASE_URL",)),
     "codex": (None, None, None),
     "claude-code": (None, None, None),
 }
 
 
-def _env(key: str, default: str = "") -> str:
-    return os.environ.get(key, default).strip() or default
+def _env(keys: str | tuple[str, ...] | None, default: str = "") -> str:
+    if keys is None:
+        return default
+    if isinstance(keys, str):
+        keys = (keys,)
+    for key in keys:
+        value = os.environ.get(key, "").strip()
+        if value:
+            return value
+    return default
 
 
 def default_model_for(provider: str) -> str:
     return _DEFAULT_MODELS.get(provider.lower().strip(), "")
+
+
+def default_base_url_for(provider: str) -> str:
+    return _DEFAULT_URLS.get(provider.lower().strip(), "")
 
 
 def _config_value(provider: str, field: str) -> str:
@@ -52,6 +73,15 @@ def _config_value(provider: str, field: str) -> str:
     if provider_config is None:
         return ""
     return provider_config.get(field, "")
+
+
+def _normalize_base_url(provider: str, base_url: str) -> str:
+    normalized = (base_url or "").strip().rstrip("/")
+    if not normalized:
+        return normalized
+    if provider == "qwen" and normalized.endswith("/compatible-mode/v1"):
+        return normalized + "/chat/completions"
+    return normalized
 
 
 def _build_client(provider: str, model: str, base_url: str, api_key: str) -> Optional[LlmClient]:
@@ -88,21 +118,22 @@ def create(provider: str, model_name: Optional[str] = None) -> Optional[LlmClien
     api_key_key, model_key, url_key = keys
 
     # 模型名：优先参数 > env > 全局配置 > 默认值
-    model = model_name or (_env(model_key) if model_key else "")
+    model = model_name or _env(model_key)
     if not model:
         model = _config_value(provider, "model")
     if not model:
         model = _DEFAULT_MODELS.get(provider, "")
 
     # base_url：优先 env > 全局配置 > 默认值
-    base_url = _env(url_key) if url_key else ""
+    base_url = _env(url_key)
     if not base_url:
         base_url = _config_value(provider, "base_url")
     if not base_url:
         base_url = _DEFAULT_URLS.get(provider, "")
+    base_url = _normalize_base_url(provider, base_url)
 
     # OpenAI 兼容：需要 api_key
-    api_key = _env(api_key_key) if api_key_key else ""
+    api_key = _env(api_key_key)
     if not api_key:
         api_key = _config_value(provider, "api_key")
 
@@ -116,7 +147,10 @@ def create_from_provider_config(provider: str, config: ProviderConfig) -> Option
         logger.warning("Unknown provider: %s", provider)
         return None
     model = config.model.strip() or default_model_for(normalized)
-    base_url = config.base_url.strip() or _DEFAULT_URLS.get(normalized, "")
+    base_url = _normalize_base_url(
+        normalized,
+        config.base_url.strip() or _DEFAULT_URLS.get(normalized, ""),
+    )
     api_key = config.api_key.strip()
     return _build_client(normalized, model, base_url, api_key)
 
@@ -136,7 +170,7 @@ def create_from_config() -> Optional[LlmClient]:
             return client
 
     # 回退遍历
-    for provider in ("glm", "deepseek", "ollama"):
+    for provider in ("glm", "deepseek", "qwen", "ollama"):
         client = create(provider)
         if client is not None:
             return client

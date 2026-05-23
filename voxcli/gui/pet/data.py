@@ -245,6 +245,11 @@ GUI_MODEL_PROFILES = (
         "label": "OpenAI Compatible",
         "summary": "适合任何 OpenAI 兼容网关，可直接自定义 model。",
     },
+    {
+        "id": "qwen",
+        "label": "Qwen API",
+        "summary": "阿里云百炼兼容模式，可直接填写 qwen-* 模型名。",
+    },
 )
 
 
@@ -274,6 +279,8 @@ def normalize_gui_model_provider(value: str) -> str:
         "claudecode": "codex",
         "claude-code": "codex",
         "codex": "codex",
+        "qwen": "qwen",
+        "dashscope": "qwen",
     }
     return aliases.get(normalized, "codex")
 

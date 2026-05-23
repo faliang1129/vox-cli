@@ -45,7 +45,8 @@ class SessionController:
         if self._llm is None:
             raise RuntimeError(
                 "无法创建 LLM 客户端。请至少配置一组模型环境变量，例如 "
-                "GLM_API_KEY/GLM_MODEL、DEEPSEEK_API_KEY/DEEPSEEK_MODEL 或 "
+                "GLM_API_KEY/GLM_MODEL、DEEPSEEK_API_KEY/DEEPSEEK_MODEL、"
+                "QWEN_API_KEY/QWEN_MODEL 或 "
                 "OLLAMA_MODEL/OLLAMA_BASE_URL。"
             )
 
@@ -139,8 +140,10 @@ class SessionController:
                     kind="error",
                 )
             self.set_llm_client(new_client)
+            selected_model = getattr(new_client, "model_name", model_name or "")
+            pai_config.persist_model_selection(provider, selected_model)
             return self._system_reply(
-                "已切换到模型: " + provider + (f" ({model_name})" if model_name else "")
+                "已切换到模型: " + provider + (f" ({selected_model})" if selected_model else "")
             )
         except Exception as exc:
             return self._system_reply(f"切换模型失败: {exc}", kind="error")
@@ -149,10 +152,7 @@ class SessionController:
         preset = pai_config.get_model_preset(preset_id)
         if preset is None:
             return self._system_reply(f"未知模型预设: {preset_id}", kind="error")
-        reply = self.set_model(preset.provider, preset.model)
-        if reply.kind != "error":
-            pai_config.set_active_model_preset(preset.id)
-        return reply
+        return self.set_model(preset.provider, preset.model)
 
     def submit(self, line: str | GuiChatSubmission) -> SessionReply:
         if isinstance(line, GuiChatSubmission):
@@ -215,6 +215,12 @@ class SessionController:
 
         if cmd == "/team":
             return self.cycle_mode()
+
+        if cmd == "/init":
+            return self._system_reply(
+                "请在终端里运行 vox-code init 来完成首次配置。",
+                kind="error",
+            )
 
         if cmd == "/style":
             if not parsed.args:

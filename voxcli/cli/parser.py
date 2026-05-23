@@ -14,6 +14,7 @@ class ParsedCommand:
 
 class CliCommandParser:
     COMMANDS = {
+        "/init": "首次配置模型提供商、API Key 和 URL",
         "/model": "切换 LLM 模型（用法: /model <preset-id|provider[:<model>]>）",
         "/plan": "显示当前执行计划",
         "/team": "切换多 Agent 协作模式",
@@ -51,6 +52,7 @@ class CliCommandParser:
     @staticmethod
     def print_help():
         print("可用命令:")
+        print("  /init                       初始化模型配置")
         print("  /model <preset-id|provider[:<model>]>  切换模型")
         print("  /plan                       查看当前执行计划")
         print("  /team                       切换多 Agent 协作模式")
