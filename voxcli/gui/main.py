@@ -11,7 +11,7 @@ def main():
     except ImportError as exc:
         print(
             "PySide6 未安装，无法启动桌宠界面。\n"
-            "请先安装依赖，例如: pip install PySide6"
+            "请先安装 GUI 依赖，例如: pip install 'vox-code[gui]'"
         )
         raise SystemExit(1) from exc
 

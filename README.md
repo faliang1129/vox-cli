@@ -34,8 +34,16 @@ Vox Code 试图把“能聊天的模型”变成“能在本地开发环境里�
 
 ### 1. Install
 
+CLI only:
+
 ```bash
 pip install -e .
+```
+
+With GUI:
+
+```bash
+pip install -e ".[gui]"
 ```
 
 ### 2. Init Config
@@ -180,6 +188,12 @@ GUI 当前支持：
 - Qwen API 标签显示
 
 如果 `PySide6` 不可用，GUI 无法启动，但 CLI 仍可正常使用。
+
+如果你要把 GUI 一起装上：
+
+```bash
+pip install "vox-code[gui]"
+```
 
 ## Project Layout
 
