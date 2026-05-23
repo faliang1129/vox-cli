@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -188,6 +188,161 @@ class FloatingActionBar(QFrame):
     def leaveEvent(self, event):
         self.hover_changed.emit(False)
         super().leaveEvent(event)
+
+
+class StatusCardWidget(QFrame):
+    """Floating status card — mode, model, state dot, optional bubble preview.
+
+    Appears above the toolbar on hover. Managed by PetCoordinator.
+    """
+
+    STATE_COLORS = {
+        "idle": QColor(140, 140, 145),
+        "thinking": QColor(255, 193, 94),
+        "working": QColor(10, 132, 255),
+        "error": QColor(255, 89, 89),
+        "celebrate": QColor(50, 210, 120),
+        "alert": QColor(255, 183, 64),
+    }
+
+    STATE_LABELS = {
+        "idle": "空闲",
+        "thinking": "思考中",
+        "working": "执行中",
+        "error": "出错",
+        "celebrate": "完成",
+        "alert": "提醒",
+    }
+
+    CARD_WIDTH = 260
+    ROW1_Y = 10
+    ROW1_H = 28
+    DIVIDER_Y = 42
+    ROW2_Y = 48
+    ROW2_H = 26
+    PAD_TOP = 8
+    PAD_BOTTOM = 10
+
+    def __init__(self):
+        super().__init__()
+        self._mode = "single"
+        self._model_provider = ""
+        self._model_name = ""
+        self._state = "idle"
+        self._bubble_text = ""
+
+        self.setObjectName("statusCard")
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.Tool
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.WindowDoesNotAcceptFocus
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        make_shadow(self, blur=24, y=6, alpha=54)
+        self.setFixedWidth(self.CARD_WIDTH)
+        self.adjustSize()
+        self.hide()
+
+    def set_status(
+        self,
+        mode: str = "",
+        model_provider: str = "",
+        model_name: str = "",
+        state: str = "idle",
+        bubble_text: str = "",
+    ):
+        self._mode = mode or self._mode
+        self._model_provider = model_provider or self._model_provider
+        self._model_name = model_name or self._model_name
+        self._state = state if state in self.STATE_COLORS else "idle"
+        self._bubble_text = bubble_text or ""
+        self.adjustSize()
+        self.update()
+
+    def sizeHint(self):
+        h = self.PAD_TOP + self.ROW1_H + self.PAD_BOTTOM
+        if self._bubble_text:
+            h += self.ROW2_Y - self.ROW1_H + self.ROW2_H
+        return QSize(self.CARD_WIDTH, h)
+
+    def paintEvent(self, _event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        rect = self.rect().adjusted(1, 1, -1, -1)
+
+        # Background
+        painter.setPen(QPen(QColor(58, 62, 70), 1))
+        painter.setBrush(QColor(16, 18, 22, 238))
+        painter.drawRoundedRect(rect, 18, 18)
+
+        dot_color = self.STATE_COLORS.get(self._state, self.STATE_COLORS["idle"])
+
+        # State dot
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(dot_color)
+        painter.drawEllipse(QPoint(24, self.ROW1_Y + self.ROW1_H // 2), 5, 5)
+
+        # Mode badge
+        mode_font = QFont("Menlo")
+        if not mode_font.exactMatch():
+            mode_font = QFont()
+        mode_font.setPointSize(11)
+        mode_font.setBold(True)
+        painter.setFont(mode_font)
+        painter.setPen(QColor(236, 236, 236))
+        mode_rect = QRect(36, self.ROW1_Y, 72, self.ROW1_H)
+        painter.drawText(
+            mode_rect,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            self._mode.upper(),
+        )
+
+        # Model name
+        model_text = self._model_name or self._model_provider
+        if model_text:
+            model_font = QFont()
+            model_font.setPointSize(10)
+            painter.setFont(model_font)
+            painter.setPen(QColor(165, 165, 170))
+            model_rect = QRect(104, self.ROW1_Y, 90, self.ROW1_H)
+            painter.drawText(
+                model_rect,
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                model_text,
+            )
+
+        # State label (right-aligned)
+        state_label = self.STATE_LABELS.get(self._state, self._state)
+        painter.setPen(dot_color)
+        painter.setFont(mode_font)
+        state_rect = QRect(rect.right() - 76, self.ROW1_Y, 62, self.ROW1_H)
+        painter.drawText(
+            state_rect,
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+            state_label,
+        )
+
+        # Bubble text (optional second row)
+        if self._bubble_text:
+            import textwrap
+
+            preview = textwrap.shorten(
+                " ".join(self._bubble_text.split()), width=48, placeholder="..."
+            )
+            painter.setPen(QPen(QColor(58, 62, 70), 1))
+            painter.drawLine(rect.left() + 14, self.DIVIDER_Y, rect.right() - 14, self.DIVIDER_Y)
+
+            bubble_font = QFont()
+            bubble_font.setPointSize(10)
+            painter.setFont(bubble_font)
+            painter.setPen(QColor(185, 185, 190))
+            text_rect = QRect(20, self.ROW2_Y, rect.width() - 40, self.ROW2_H)
+            painter.drawText(
+                text_rect,
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter | Qt.TextFlag.TextWordWrap,
+                preview,
+            )
 
 
 class CommandWindow(FramelessToolWindow):

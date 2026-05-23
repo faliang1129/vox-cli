@@ -22,7 +22,7 @@ from .data import (
     gui_model_profile_label,
 )
 from .widgets import PetWidget
-from .windows import ChatWindow, CommandWindow, FloatingActionBar, GuiModelSettingsWindow, PetManagerWindow
+from .windows import ChatWindow, CommandWindow, FloatingActionBar, GuiModelSettingsWindow, PetManagerWindow, StatusCardWidget
 from .workers import SessionWorker
 
 
@@ -55,10 +55,13 @@ class PetCoordinator(QWidget):
         self.chat = ChatWindow(self.controller)
         self.commands = CommandWindow()
         self.toolbar = FloatingActionBar()
+        self.status_card = StatusCardWidget()
+        self._pet_state = "idle"
         self.pet.toggled.connect(self.toggle_chat)
         self.pet.request_quit.connect(QApplication.instance().quit)
         self.pet.hover_changed.connect(self._on_pet_hover_changed)
         self.pet.position_changed.connect(self._sync_toolbar_position)
+        self.pet.position_changed.connect(self._sync_status_card_position)
         self.pet.cycle_pet_requested.connect(self._cycle_pet_action)
         self.pet.context_menu_requested.connect(self._show_pet_context_menu)
         self.chat.submitted.connect(self.submit_line)
@@ -68,6 +71,12 @@ class PetCoordinator(QWidget):
         self.toolbar.commands_requested.connect(self.toggle_commands)
         self.toolbar.hover_changed.connect(self._on_toolbar_hover_changed)
 
+        self.status_card.set_status(
+            mode=self.controller.mode,
+            model_provider=self.controller.provider_name,
+            model_name=self.controller.model_name,
+            state=self._pet_state,
+        )
         self._reload_pets()
         self._apply_pet(self.current_pet_id, announce=False)
 
@@ -117,6 +126,7 @@ class PetCoordinator(QWidget):
         if reset_position:
             self._place_windows()
         self._sync_toolbar_position()
+        self._sync_status_card_position()
         self.pet.show()
         self.pet.raise_()
         self.pet.speak(self._text("reveal_bubble", "主人，我在这里。"))
@@ -135,7 +145,9 @@ class PetCoordinator(QWidget):
             ChatMessage("user", submission.text, attachments=submission.attachments)
         )
         self.chat.set_busy(True)
+        self._pet_state = "thinking"
         self.pet.set_thinking(True)
+        self._update_status_card(state="thinking")
         self.worker = SessionWorker(self.controller, submission)
         self.worker.completed.connect(self._handle_reply)
         self.worker.failed.connect(self._handle_failure)
@@ -153,8 +165,10 @@ class PetCoordinator(QWidget):
         role = "error" if reply.kind == "error" else "assistant"
         if submitted_line == "/clear" and reply.kind != "error":
             self.chat.clear_messages()
+            self._pet_state = "celebrate"
             self.pet.speak(reply.text)
             self.pet.celebrate()
+            self._update_status_card(state="celebrate", bubble_text=reply.text)
             self.worker = None
             return
 
@@ -165,28 +179,45 @@ class PetCoordinator(QWidget):
                 self.chat.append_message(ChatMessage(role, reply.text))
             self.pet.speak(reply.text)
             if reply.kind == "assistant":
+                self._pet_state = "celebrate"
                 self.pet.celebrate()
             elif reply.kind == "error":
+                self._pet_state = "error"
                 self.pet.error()
             else:
+                self._pet_state = "alert"
                 self.pet.alert()
+            self._update_status_card(state=self._pet_state, bubble_text=reply.text)
             self._show_toolbar()
+
+            # Reset to idle after short delay
+            QTimer.singleShot(2000, self._reset_pet_state)
         if reply.should_quit:
             QApplication.instance().quit()
         self.worker = None
+
+    def _reset_pet_state(self):
+        self._pet_state = "idle"
+        self._update_status_card(state="idle")
 
     def _handle_failure(self, message: str):
         self.chat.set_busy(False)
         self.pet.set_thinking(False)
         self.chat.append_message(ChatMessage("error", message))
+        self._pet_state = "error"
+        self._update_status_card(state="error", bubble_text=message)
         self.pet.speak(message)
         self.pet.error()
+        QTimer.singleShot(2000, self._reset_pet_state)
         self.worker = None
 
     def _handle_attachment_error(self, message: str):
         self.chat.append_message(ChatMessage("error", message))
+        self._pet_state = "error"
+        self._update_status_card(state="error", bubble_text=message)
         self.pet.speak(message)
         self.pet.error()
+        QTimer.singleShot(2000, self._reset_pet_state)
 
     def _apply_controller_reply(self, reply: SessionReply):
         self._sync_reply_state(reply)
@@ -311,18 +342,44 @@ class PetCoordinator(QWidget):
         y = pet_pos.y() - toolbar_size.height() - 12
         self.toolbar.move(x, y)
 
+    def _sync_status_card_position(self):
+        card_size = self.status_card.sizeHint()
+        toolbar_size = self.toolbar.sizeHint()
+        pet_pos = self.pet.pos()
+        card_y = pet_pos.y() - card_size.height() - toolbar_size.height() - 18
+        card_x = pet_pos.x() - max(0, (card_size.width() - self.pet.width()) // 2)
+        screen = QApplication.primaryScreen()
+        if screen is not None:
+            area = screen.availableGeometry()
+            card_x = max(area.left() + 8, min(card_x, area.right() - card_size.width() - 8))
+            card_y = max(area.top() + 8, card_y)
+        self.status_card.move(card_x, card_y)
+
     def _show_toolbar(self):
         self._toolbar_hide_timer.stop()
         self._sync_toolbar_position()
         self.toolbar.show()
         self.toolbar.raise_()
+        self._sync_status_card_position()
+        self.status_card.show()
+        self.status_card.raise_()
 
     def _hide_toolbar_if_idle(self):
         if self.chat.isVisible() or self.commands.isVisible():
             return
-        if self.pet.underMouse() or self.toolbar.underMouse():
+        if self.pet.underMouse() or self.toolbar.underMouse() or self.status_card.underMouse():
             return
         self.toolbar.hide()
+        self.status_card.hide()
+
+    def _update_status_card(self, state: str = "", bubble_text: str = ""):
+        self.status_card.set_status(
+            mode=self.controller.mode,
+            model_provider=self.controller.provider_name,
+            model_name=self.controller.model_name,
+            state=state or self._pet_state,
+            bubble_text=bubble_text,
+        )
 
     def _on_pet_hover_changed(self, hovering: bool):
         if hovering:
@@ -392,6 +449,7 @@ class PetCoordinator(QWidget):
 
     def _hide_pet_action(self):
         self.toolbar.hide()
+        self.status_card.hide()
         self.chat.hide()
         self.commands.hide()
         self.toolbar.set_active_panel("")
@@ -573,9 +631,11 @@ class PetCoordinator(QWidget):
 
     def _set_mode(self, mode: str):
         self._apply_controller_reply(self.controller.set_mode(mode))
+        self._update_status_card()
 
     def _set_style(self, style: str):
         self._apply_controller_reply(self.controller.set_presentation_mode(style))
+        self._update_status_card()
 
     def _apply_skin_action(self, skin_id: str):
         self._apply_skin(skin_id)
@@ -688,6 +748,7 @@ class PetCoordinator(QWidget):
                 f"桌宠已切换到独立模型 {gui_model_profile_label(new_client.provider_name)} / {new_client.model_name}。"
             )
             self.pet.celebrate()
+            self._update_status_card()
         except Exception as exc:
             if self._settings_window is not None:
                 self._settings_window.set_status(f"保存失败: {exc}", error=True)
@@ -772,6 +833,7 @@ class PetCoordinator(QWidget):
                 self._settings_window.set_status("桌宠已恢复跟随全局模型。")
             self.pet.speak("桌宠已经恢复跟随全局模型。")
             self.pet.alert()
+            self._update_status_card()
         except Exception as exc:
             if self._settings_window is not None:
                 self._settings_window.set_status(f"保存失败: {exc}", error=True)
