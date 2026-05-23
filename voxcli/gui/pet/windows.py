@@ -1452,7 +1452,7 @@ class GuiModelSettingsWindow(FramelessToolWindow):
     def selected_config(self) -> GuiModelConfig:
         return GuiModelConfig(
             enabled=self._source_mode == "independent",
-            provider="codex",
+            provider=self._selected_profile,
             model=self.model_input.text().strip(),
             base_url=normalize_gui_model_base_url(self.base_url_input.text().strip()),
             api_key=self.api_key_input.text().strip(),
