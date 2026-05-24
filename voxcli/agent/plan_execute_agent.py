@@ -8,6 +8,7 @@ from io import StringIO
 from typing import List, Optional, Dict, Set, Callable
 from enum import Enum
 
+from ..config import VoxCodeConfig
 from ..llm.base import LlmClient, Message, ToolCall
 from ..memory.manager import MemoryManager
 from ..plan import Planner, ExecutionPlan, PlanStatus, Task, TaskStatus, TaskType
@@ -87,7 +88,11 @@ class PlanExecuteAgent:
         self._llm = llm_client
         self._tool_registry = tool_registry or ToolRegistry()
         self._planner = planner or Planner(llm_client)
-        self._memory_manager = memory_manager or MemoryManager(llm_client)
+        self._memory_manager = memory_manager or MemoryManager(
+            llm_client,
+            project_path=self._tool_registry.project_path,
+            global_config_dir=VoxCodeConfig.config_dir(),
+        )
         self._review_handler = review_handler or PlanReviewHandler()
 
     @property

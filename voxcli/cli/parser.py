@@ -26,7 +26,8 @@ class CliCommandParser:
         "/search": "搜索索引的代码库",
         "/graph": "显示代码关系图",
         "/memory": "查看记忆系统状态",
-        "/save": "保存当前对话到文件",
+        "/save": "提取当前会话中的稳定事实并写入长期记忆",
+        "/export": "导出当前对话到文件",
         "/clear": "清空当前对话历史（保留系统提示词）",
         "/context": "查看当前上下文统计",
         "/exit": "退出程序",
@@ -64,7 +65,8 @@ class CliCommandParser:
         print("  /search <query>             搜索代码库")
         print("  /graph                      显示代码关系图")
         print("  /memory                     查看记忆状态")
-        print("  /save <file>                保存对话到文件")
+        print("  /save [--global]            保存长期记忆（默认项目级）")
+        print("  /export <file>              导出对话到文件")
         print("  /clear                      清空对话历史")
         print("  /context                    查看上下文统计")
         print("  /exit                       退出程序")

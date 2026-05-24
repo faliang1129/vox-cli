@@ -8,6 +8,7 @@ import logging
 from typing import List, Optional, Dict
 
 from ..chat import GuiChatSubmission
+from ..config import VoxCodeConfig
 from ..llm.base import LlmClient, Message, ToolCall
 from ..memory.manager import MemoryManager
 from ..tool import ToolRegistry, ToolInvocation
@@ -60,7 +61,11 @@ class Agent:
         self._llm = llm_client
         self._tool_registry = tool_registry or ToolRegistry()
         self._conversation_history: List[Message] = [Message.system(_SYSTEM_PROMPT)]
-        self._memory_manager = MemoryManager(llm_client)
+        self._memory_manager = MemoryManager(
+            llm_client,
+            project_path=self._tool_registry.project_path,
+            global_config_dir=VoxCodeConfig.config_dir(),
+        )
 
     def set_llm_client(self, llm_client: LlmClient):
         self._llm = llm_client

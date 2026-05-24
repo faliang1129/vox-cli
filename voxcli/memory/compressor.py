@@ -90,7 +90,8 @@ class ContextCompressor:
         return final_summary
 
     def extract_facts(self, entries: List[MemoryEntry],
-                      long_term: LongTermMemory) -> List[str]:
+                      long_term: LongTermMemory,
+                      extra_metadata: Optional[dict] = None) -> List[str]:
         if not entries:
             return []
 
@@ -108,15 +109,20 @@ class ContextCompressor:
             facts_text = resp.content or ""
 
             facts = []
+            seen_facts = set()
             for line in facts_text.split("\n"):
                 fact = self._normalize_fact(line)
-                if self._is_persistent_fact(fact):
+                if self._is_persistent_fact(fact) and fact not in seen_facts:
+                    seen_facts.add(fact)
                     facts.append(fact)
+                    metadata = {"source": "fact_extractor"}
+                    if extra_metadata:
+                        metadata.update(extra_metadata)
                     entry = MemoryEntry(
                         id=f"fact-{uuid.uuid4().hex[:8]}",
                         content=fact,
                         type=MemoryType.FACT,
-                        metadata={"source": "fact_extractor"},
+                        metadata=metadata,
                     )
                     long_term.store(entry)
             return facts

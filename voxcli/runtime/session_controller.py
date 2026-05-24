@@ -51,7 +51,11 @@ class SessionController:
             )
 
         self._tool_registry = tool_registry or ToolRegistry()
-        self._shared_memory_manager = MemoryManager(self._llm)
+        self._shared_memory_manager = MemoryManager(
+            self._llm,
+            project_path=self._tool_registry.project_path,
+            global_config_dir=pai_config.config_dir(),
+        )
         self._agent = agent or Agent(self._llm, self._tool_registry)
         self._plan_agent = plan_agent or PlanExecuteAgent(
             self._llm, self._tool_registry, None, self._shared_memory_manager, None
@@ -305,6 +309,27 @@ class SessionController:
                 return self._system_reply(f"搜索失败: {exc}", kind="error")
 
         if cmd == "/save":
+            if parsed.args and parsed.args != ["--global"]:
+                return self._system_reply(
+                    "用法: /save [--global]\n导出对话请使用: /export [file]",
+                    kind="error",
+                )
+            scope = "global" if parsed.args == ["--global"] else "project"
+            try:
+                result = self._active_memory_manager().save_long_term(scope)
+                scope_label = "全局级" if result.scope == "global" else "项目级"
+                if result.extracted_count == 0:
+                    return self._system_reply(
+                        f"未提取到可长期保存的稳定事实（{scope_label}）\n目标文件: {result.storage_file}"
+                    )
+                return self._system_reply(
+                    f"长期记忆已保存到{scope_label}: 抽取 {result.extracted_count} 条，新增 {result.stored_count} 条\n"
+                    f"目标文件: {result.storage_file}"
+                )
+            except Exception as exc:
+                return self._system_reply(f"保存长期记忆失败: {exc}", kind="error")
+
+        if cmd == "/export":
             filename = " ".join(parsed.args).strip() or "conversation.md"
             try:
                 history = self._agent.conversation_history
@@ -319,9 +344,9 @@ class SessionController:
                     lines.append(f"## {message.role.upper()}\n" + "\n".join(part for part in parts if part) + "\n")
                 with open(filename, "w", encoding="utf-8") as handle:
                     handle.write("\n".join(lines))
-                return self._system_reply(f"对话已保存到: {filename}")
+                return self._system_reply(f"对话已导出到: {filename}")
             except Exception as exc:
-                return self._system_reply(f"保存失败: {exc}", kind="error")
+                return self._system_reply(f"导出失败: {exc}", kind="error")
 
         if cmd == "/hitl":
             return self._system_reply("桌宠版 MVP 暂未接入 HITL 面板，请继续使用 CLI 处理审批。")

@@ -49,7 +49,11 @@ def run_repl():
         sys.exit(1)
 
     tool_registry = ToolRegistry()
-    memory_manager = MemoryManager(llm_client)
+    memory_manager = MemoryManager(
+        llm_client,
+        project_path=tool_registry.project_path,
+        global_config_dir=pai_config.config_dir(),
+    )
 
     # 三种运行模式
     state = {
@@ -185,17 +189,28 @@ def _handle_command(parsed: ParsedCommand, agent, plan_agent, orchestrator,
         _cmd_search(parsed, tool_registry)
 
     elif cmd == "/memory":
-        print(memory_manager.status_summary())
+        print(_active_memory_manager(agent, memory_manager, get_mode()).status_summary())
 
     elif cmd == "/clear":
-        agent.clear_history()
+        active_memory = _active_memory_manager(agent, memory_manager, get_mode())
+        if get_mode() == "single":
+            agent.clear_history()
+        else:
+            active_memory.clear_short_term()
         print("对话历史已清空")
 
     elif cmd == "/context":
-        print(agent.get_context_status())
+        if get_mode() == "single":
+            print(agent.get_context_status())
+        else:
+            print(f"当前运行模式: {_render_mode_label(get_mode())}\n"
+                  f"{_active_memory_manager(agent, memory_manager, get_mode()).status_summary()}")
 
     elif cmd == "/save":
-        _cmd_save(parsed, agent)
+        _cmd_save(parsed, _active_memory_manager(agent, memory_manager, get_mode()))
+
+    elif cmd == "/export":
+        _cmd_export(parsed, agent)
 
     else:
         print(f"未知命令: {cmd}，输入 /help 查看可用命令")
@@ -265,7 +280,29 @@ def _cmd_search(parsed, tool_registry):
         print(f"搜索失败: {e}")
 
 
-def _cmd_save(parsed, agent):
+def _cmd_save(parsed, memory_manager):
+    scope = "project"
+    if parsed.args:
+        if parsed.args == ["--global"]:
+            scope = "global"
+        else:
+            print("用法: /save [--global]")
+            print("导出对话请使用: /export [file]")
+            return
+    try:
+        result = memory_manager.save_long_term(scope)
+        scope_label = "全局级" if result.scope == "global" else "项目级"
+        if result.extracted_count == 0:
+            print(f"未提取到可长期保存的稳定事实（{scope_label}）")
+            print(f"目标文件: {result.storage_file}")
+            return
+        print(f"长期记忆已保存到{scope_label}: 抽取 {result.extracted_count} 条，新增 {result.stored_count} 条")
+        print(f"目标文件: {result.storage_file}")
+    except Exception as e:
+        print(f"保存长期记忆失败: {e}")
+
+
+def _cmd_export(parsed, agent):
     filename = " ".join(parsed.args) if parsed.args else "conversation.md"
     try:
         history = agent.conversation_history
@@ -279,6 +316,12 @@ def _cmd_save(parsed, agent):
         print(f"对话已保存到: {filename}")
     except Exception as e:
         print(f"保存失败: {e}")
+
+
+def _active_memory_manager(agent, shared_memory_manager, mode: str):
+    if mode == "single":
+        return agent.memory_manager
+    return shared_memory_manager
 
 
 def _cmd_init():

@@ -21,18 +21,40 @@ def _storage_dir() -> Path:
 
 
 class LongTermMemory(Memory):
-    def __init__(self):
+    def __init__(self, storage_dir: Optional[str | Path] = None,
+                 storage_file: Optional[str | Path] = None,
+                 scope: str = "global",
+                 default_metadata: Optional[dict] = None):
         self._entries: dict[str, MemoryEntry] = {}
         self._token_counter = 0
-        self._storage_file = _storage_dir() / _STORAGE_FILE
+        self._scope = scope
+        self._default_metadata = dict(default_metadata or {})
+        if storage_file is not None:
+            self._storage_file = Path(storage_file)
+        else:
+            base_dir = Path(storage_dir) if storage_dir is not None else _storage_dir()
+            self._storage_file = base_dir / _STORAGE_FILE
         self._load_from_disk()
 
-    def store(self, entry: MemoryEntry):
+    @property
+    def storage_file(self) -> Path:
+        return self._storage_file
+
+    @property
+    def scope(self) -> str:
+        return self._scope
+
+    def store(self, entry: MemoryEntry) -> bool:
         if any(e.content == entry.content for e in self._entries.values()):
-            return
+            return False
+        metadata = dict(entry.metadata)
+        metadata.update(self._default_metadata)
+        metadata["scope"] = self._scope
+        entry.metadata = metadata
         self._entries[entry.id] = entry
         self._token_counter += entry.token_count
         self._save_to_disk()
+        return True
 
     def retrieve(self, id: str) -> Optional[MemoryEntry]:
         return self._entries.get(id)
@@ -78,10 +100,11 @@ class LongTermMemory(Memory):
         type_counts = {}
         for e in self._entries.values():
             type_counts[e.type] = type_counts.get(e.type, 0) + 1
-        return (f"长期记忆: {self.size()}条 / {self._token_counter} tokens "
+        return (f"长期记忆[{self._scope}]: {self.size()}条 / {self._token_counter} tokens "
                 f"(事实: {type_counts.get(MemoryType.FACT, 0)}, "
                 f"摘要: {type_counts.get(MemoryType.SUMMARY, 0)}, "
-                f"工具结果: {type_counts.get(MemoryType.TOOL_RESULT, 0)})")
+                f"工具结果: {type_counts.get(MemoryType.TOOL_RESULT, 0)}) | "
+                f"文件: {self._storage_file}")
 
     def _save_to_disk(self):
         try:

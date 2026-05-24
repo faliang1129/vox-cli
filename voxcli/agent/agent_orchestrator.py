@@ -9,6 +9,7 @@ from io import StringIO
 from typing import List, Optional, Dict, Set
 from dataclasses import dataclass, field
 
+from ..config import VoxCodeConfig
 from ..llm.base import LlmClient, Message
 from ..memory.manager import MemoryManager
 from ..tool import ToolRegistry
@@ -68,7 +69,11 @@ class AgentOrchestrator:
             SubAgent("worker-2", AgentRole.WORKER, llm_client, self._tool_registry),
         ]
         self._reviewer = SubAgent("reviewer", AgentRole.REVIEWER, llm_client, self._tool_registry)
-        self._memory_manager = memory_manager or MemoryManager(llm_client)
+        self._memory_manager = memory_manager or MemoryManager(
+            llm_client,
+            project_path=self._tool_registry.project_path,
+            global_config_dir=VoxCodeConfig.config_dir(),
+        )
 
     @property
     def memory_manager(self) -> MemoryManager:
