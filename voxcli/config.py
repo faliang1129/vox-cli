@@ -135,6 +135,7 @@ class VoxCodeConfig:
         self.active_language: str = "zh-CN"
         self.active_skin: str = "glass"
         self.active_pet: str = "terminal-cat"
+        self.skipped_update_version: str = ""
         self._catalog: dict = merge_catalog(DEFAULT_CATALOG, {})
 
     @classmethod
@@ -180,6 +181,7 @@ class VoxCodeConfig:
             "activeLanguage": self.active_language,
             "activeSkin": self.active_skin,
             "activePet": self.active_pet,
+            "skippedUpdateVersion": self.skipped_update_version,
         }
         self.config_file().write_text(
             json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -198,6 +200,7 @@ class VoxCodeConfig:
                 cfg.active_language = str(data.get("activeLanguage", "zh-CN")).strip() or "zh-CN"
                 cfg.active_skin = str(data.get("activeSkin", "glass")).strip() or "glass"
                 cfg.active_pet = str(data.get("activePet", "terminal-cat")).strip() or "terminal-cat"
+                cfg.skipped_update_version = str(data.get("skippedUpdateVersion", "")).strip()
                 for name, pc_data in data.get("providers", {}).items():
                     cfg.providers[str(name).lower()] = ProviderConfig.from_dict(pc_data)
             except Exception as e:
@@ -419,6 +422,16 @@ class VoxCodeConfig:
 
     def set_active_pet(self, pet_id: str):
         self.active_pet = pet_id
+        self.save()
+
+    def skip_update_version(self, version: str):
+        self.skipped_update_version = version.strip()
+        self.save()
+
+    def clear_skipped_update_version(self):
+        if not self.skipped_update_version:
+            return
+        self.skipped_update_version = ""
         self.save()
 
     def _save_custom_model_preset(self, provider: str, model: str) -> ModelPreset:

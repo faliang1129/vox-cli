@@ -6,6 +6,7 @@ import os
 import sys
 from typing import Optional, Sequence
 
+from .. import __version__
 from ..config import ProviderConfig, pai_config
 from ..llm.factory import create_from_config, default_base_url_for, default_model_for
 from ..agent import Agent, PlanExecuteAgent, AgentOrchestrator
@@ -17,6 +18,7 @@ from ..prompting import PresentationMode, ResponsePresenter
 from ..util.ansi import heading, section, subtle, emphasis, success, error
 from ..util.animation import ProgressDots, Typewriter
 from .parser import CliCommandParser, ParsedCommand
+from .version_check import AsyncUpdateChecker, UpdateNotice, default_timeout, run_auto_update
 
 logger = logging.getLogger(__name__)
 _SUPPORTED_PROVIDERS = ("glm", "deepseek", "qwen", "ollama")
@@ -34,6 +36,12 @@ def _init_logging(debug: bool = False):
 def run_repl():
     debug = os.environ.get("VOX_CODE_DEBUG", "").lower() in ("1", "true", "yes")
     _init_logging(debug)
+    update_checker = AsyncUpdateChecker(
+        __version__,
+        skipped_version=pai_config.skipped_update_version,
+        timeout=default_timeout(),
+    )
+    update_checker.start()
 
     _animate_startup()
 
@@ -74,9 +82,11 @@ def run_repl():
     tw.write_fast(subtle(f"  Model: {llm_client.__class__.__name__}\n"))
     tw.write_fast(subtle(f"  Mode:  {_render_mode_label(state['mode'])}\n"))
     tw.write_fast(subtle(f"  Style: {state['presentation_mode']}\n"))
+    _handle_update_notice_if_ready(update_checker)
     print()
 
     while True:
+        _handle_update_notice_if_ready(update_checker)
         try:
             line = input(">>> ").strip()
         except (EOFError, KeyboardInterrupt):
@@ -447,7 +457,6 @@ def main(argv: Optional[Sequence[str]] = None):
         _print_cli_usage()
         return
     if command in {"-v", "--version", "version"}:
-        from .. import __version__
         print(__version__)
         return
     if command == "init":
@@ -464,7 +473,7 @@ def main(argv: Optional[Sequence[str]] = None):
 def _animate_startup():
     """Claude Code 风格的启动动画"""
     print(heading("╭──────────────────────────────╮"))
-    print(heading("│       Vox Code v2.0.1         │"))
+    print(heading(f"│       Vox Code v{__version__:<8}   │"))
     print(heading("│   Web-aware Tool CLI           │"))
     print(heading("╰──────────────────────────────╯"))
     dots = ProgressDots("Initializing")
@@ -489,6 +498,40 @@ def _print_presented_result(presenter: ResponsePresenter, presentation_mode: str
     presented = presenter.present(user_input, raw_result, presentation_mode)
     if presented.display_response:
         print(presented.display_response)
+
+
+def _handle_update_notice_if_ready(update_checker: AsyncUpdateChecker):
+    notice = update_checker.poll_notice()
+    if not notice:
+        return
+    print()
+    print(subtle(notice.render()))
+    print("  [u] 立即更新")
+    print("  [s] 跳过此版本，直到下一个版本再提示")
+    choice = input("  选择 [u/s，默认 s]: ").strip().lower()
+    if choice == "u":
+        _run_cli_auto_update(notice)
+        return
+    pai_config.skip_update_version(notice.latest_version)
+    print(subtle(f"  已跳过版本 {notice.latest_version}，下个新版本再提醒。"))
+    print()
+
+
+def _run_cli_auto_update(notice: UpdateNotice):
+    print(subtle("  正在自动更新，请稍候..."))
+    result = run_auto_update(notice.package_name)
+    if result.success:
+        pai_config.clear_skipped_update_version()
+        print(f"  {success('✓')} {subtle(f'已升级到最新版本 {notice.latest_version}。请重新启动 vox-code。')}")
+        raise SystemExit(0)
+
+    print(f"  {error('✗')} {subtle(f'自动更新失败 (exit code: {result.returncode})')}")
+    details = (result.stderr or result.stdout).strip()
+    if details:
+        preview = details if len(details) <= 600 else details[:600] + "\n...(输出已截断)"
+        print(preview)
+    print(subtle("  你也可以稍后手动运行 `pip install -U vox-code`。"))
+    print()
 
 
 if __name__ == "__main__":
