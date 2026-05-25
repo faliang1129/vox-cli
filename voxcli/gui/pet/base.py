@@ -6,6 +6,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QMouseEvent
 from PySide6.QtWidgets import QGraphicsDropShadowEffect, QMainWindow, QWidget
 
+from ..macos_window import tune_window_for_desktop_pet
+
 
 def make_shadow(widget: QWidget, blur: int = 36, y: int = 10, alpha: int = 56):
     shadow = QGraphicsDropShadowEffect(widget)
@@ -35,6 +37,10 @@ class FramelessToolWindow(QMainWindow):
             | Qt.WindowType.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        tune_window_for_desktop_pet(self, role="panel")
 
     def closeEvent(self, event):
         event.ignore()

@@ -31,6 +31,7 @@ from ...chat import ChatAttachment, GuiChatSubmission
 from ...config import GuiModelConfig, pai_config
 from ...llm.factory import default_model_for
 from ...runtime import SessionController, SessionReply
+from ..macos_window import tune_window_for_desktop_pet
 from .base import FramelessToolWindow, make_shadow, termi_panel_stylesheet
 from .data import (
     ChatMessage,
@@ -140,6 +141,10 @@ class FloatingActionBar(QFrame):
         self.apply_skin("dark")
         self.hide()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        tune_window_for_desktop_pet(self, role="overlay")
+
     def _make_button(self, text: str, handler):
         button = QPushButton(text)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -245,6 +250,10 @@ class StatusCardWidget(QFrame):
         self.setFixedWidth(self.CARD_WIDTH)
         self.adjustSize()
         self.hide()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        tune_window_for_desktop_pet(self, role="overlay")
 
     def set_status(
         self,

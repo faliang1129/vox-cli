@@ -7,6 +7,7 @@ from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPainterPath, QPen, QPi
 from PySide6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
 
 from ...runtime import SessionController, SessionReply
+from ..macos_window import tune_window_for_desktop_pet
 from .base import make_shadow
 from .data import BUILTIN_PETS, PetPackage, SKIN_PALETTES, SkinPalette
 
@@ -541,6 +542,10 @@ class PetWidget(QWidget):
         self._mode_label.hide()
         self.set_skin("glass")
         self._idle_timer.start()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        tune_window_for_desktop_pet(self, role="pet")
 
     def update_session_state(self, reply: SessionReply):
         return

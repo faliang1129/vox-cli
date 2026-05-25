@@ -12,6 +12,7 @@ from ...chat import GuiChatSubmission
 from ...config import GuiModelConfig, GuiModelConfigStore, pai_config
 from ...llm.factory import create_from_config, create_from_provider_config
 from ...runtime import SessionController, SessionReply
+from ..macos_window import configure_app_for_desktop_pet
 from .data import (
     BUILTIN_PETS,
     SKIN_PALETTES,
@@ -883,6 +884,7 @@ class PetCoordinator(QWidget):
 def run_pet_app(argv: list[str]) -> int:
     app = QApplication(argv)
     app.setQuitOnLastWindowClosed(False)
+    configure_app_for_desktop_pet()
     coordinator = PetCoordinator()
     coordinator.hide()
     return app.exec()
