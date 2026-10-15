@@ -45,12 +45,13 @@ Repository = "https://github.com/faliang1129/vox-cli"
 Issues = "https://github.com/faliang1129/vox-cli/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["voxcli"]
+packages = ["voxcli", "paicli"]
 
 [tool.hatch.build.targets.sdist]
 include = [
     "/README.md",
     "/pyproject.toml",
     "/.env.example",
+    "/paicli",
     "/voxcli",
 ]
