@@ -2,6 +2,8 @@
 
 Vox Code 是一个面向本地开发工作流的 AI 助手，提供交互式命令行和 PySide6 桌宠界面。它可以连接云端模型或本机 Ollama，并在当前项目目录中调用文件、命令、代码检索和网页工具。
 
+GitHub 仓库：[faliang1129/vox-cli](https://github.com/faliang1129/vox-cli)
+
 ## 功能
 
 - **多种模型**：CLI 支持 GLM、DeepSeek、Qwen 和 Ollama；可在会话中切换模型。
@@ -41,6 +43,14 @@ python -m pip install -r requirements.txt
 python -m pip install -e .          # CLI
 python -m pip install -e ".[gui]"  # CLI 和桌宠 GUI
 ```
+
+## 获取项目压缩包
+
+也可以通过夸克网盘获取 `vox-cli-main.7z`：
+
+1. 打开[夸克网盘分享链接](https://pan.quark.cn/s/70f2c25bdcf2)，或复制下面的分享口令并在夸克网盘 APP 中打开。
+2. 分享口令：`/~80433bTC0f~:/`
+3. 在分享页中获取 `vox-cli-main.7z`（约 169.9 MB）。
 
 ## 配置模型
 

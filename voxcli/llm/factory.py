@@ -79,6 +79,8 @@ def _normalize_base_url(provider: str, base_url: str) -> str:
     normalized = (base_url or "").strip().rstrip("/")
     if not normalized:
         return normalized
+    if provider == "deepseek" and not normalized.lower().endswith("/chat/completions"):
+        return normalized + "/chat/completions"
     if provider == "qwen" and normalized.endswith("/compatible-mode/v1"):
         return normalized + "/chat/completions"
     return normalized
